@@ -1,0 +1,24 @@
+{#
+  rating_stars.html — Render a 5-star rating from a 1–10 rating value.
+
+  Params:
+    rating   (int|None) — value in 1..10 (half-stars). None → no fill.
+    static   (bool)     — if true, no hover/click affordance (display only).
+    book_id  (int|None) — if provided, stars become POST controls that change
+                          the rating for that book (used on book detail page).
+#}
+{% set rating = rating if rating is defined else None %}
+{% set static = static if static is defined else true %}
+{% set book_id = book_id if book_id is defined else None %}
+
+<span class="star-rating{% if static %} static{% endif %}"
+      {% if book_id %}data-book-id="{{ book_id }}"{% endif %}
+      role="img"
+      aria-label="{% if rating %}{{ '%0.1f'|format(rating / 2) }} out of 5 stars{% else %}Not rated{% endif %}">
+  {% for star in range(1, 6) %}
+    {# Each whole-star slot maps to two rating points (slot 1 = 1-2, slot 2 = 3-4, …). #}
+    {% set threshold = star * 2 %}
+    {% set filled = rating is not none and rating >= threshold - 1 %}
+    <span class="star {% if filled %}filled{% endif %} glyphicon glyphicon-star" data-value="{{ threshold }}"></span>
+  {% endfor %}
+</span>

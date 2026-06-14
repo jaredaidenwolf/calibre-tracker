@@ -1,0 +1,781 @@
+{% from 'modal_dialogs.html' import restrict_modal, delete_book, filechooser_modal, delete_confirm_modal, change_confirm_modal %}
+{% import 'image.html' as image %}
+
+<!DOCTYPE html>
+<html lang="{{ current_user.locale }}">
+  <head>
+    <title>{{instance}} | {{title|safe}}</title>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge,chrome=1">
+    <meta name="mobile-web-app-capable" content="yes">
+    {% if g.google_site_verification|length > 0 %}
+      <meta name="google-site-verification" content="{{g.google_site_verification}}">
+    {% endif %}
+    <!-- Bootstrap -->
+    <link rel="apple-touch-icon" sizes="140x140" href="{{ url_for('static', filename='favicon.ico') }}">
+    <link rel="shortcut icon" href="{{ url_for('static', filename='favicon.ico') }}">
+    <link href="{{ url_for('static', filename='css/libs/bootstrap.min.css') }}" rel="stylesheet" media="screen">
+    {% block header %}{% endblock %}
+    <link href="{{ url_for('static', filename='css/style.css') }}" rel="stylesheet" media="screen">
+    <link href="{{ url_for('static', filename='css/upload.css') }}" rel="stylesheet" media="screen">
+    {% if g.current_theme == 1 %}
+      <link href="{{ url_for('static', filename='css/caliBlur.css') }}" rel="stylesheet" media="screen">
+      <link href="{{ url_for('static', filename='css/caliBlur_override.css') }}" rel="stylesheet" media="screen">
+    {% endif %}
+    {# Fork #288 mobile pass 2: move .alert toasts to TOP on mobile so they
+       don't overlap bottom-of-form buttons (e.g. /login magic-link button). #}
+    <link href="{{ url_for('static', filename='css/mobile-alert-toast-position.css') }}" rel="stylesheet" media="screen">
+    {# Fork #288 mobile pass 3: scrollable modal body on mobile so Send/Cancel
+       buttons in tall modals (Send-to-eReader) stay reachable. #}
+    <link href="{{ url_for('static', filename='css/mobile-modal-scrollable-body.css') }}" rel="stylesheet" media="screen">
+    {# Fork #288 mobile sweep: book card titles + authors wrap to 2 lines on
+       mobile instead of single-line ellipsis. #}
+    <link href="{{ url_for('static', filename='css/fork-mobile-cards.css') }}" rel="stylesheet" media="screen">
+    <link href="{{ url_for('static', filename='css/cwa.css') }}" rel="stylesheet" media="screen">
+    <link href="{{ url_for('static', filename='css/book_organizer.css') }}" rel="stylesheet" media="screen">
+    {% if current_user.is_authenticated and (current_user.role_admin() or current_user.role_edit()) %}
+    <link href="{{ url_for('static', filename='css/duplicates-notifications.css') }}" rel="stylesheet" media="screen">
+    {% endif %}
+    {% if current_user.is_authenticated and current_user.role_edit() %}
+    <link href="{{ url_for('static', filename='css/drag-drop-merge.css') }}" rel="stylesheet" media="screen">
+    {% endif %}
+    <script>
+      let checkMessagesInterval = null; // Store interval ID
+
+      function getCsrfToken() {
+          const input = document.querySelector("input[name='csrf_token']");
+          return input ? input.value : "";
+      }
+
+      function cwaFetch(url, options = {}) {
+          const fetchOptions = { ...options };
+          fetchOptions.credentials = fetchOptions.credentials || "same-origin";
+
+          const method = (fetchOptions.method || "GET").toUpperCase();
+          if (!["GET", "HEAD", "OPTIONS", "TRACE"].includes(method)) {
+              const headers = new Headers(fetchOptions.headers || {});
+              const csrfToken = getCsrfToken();
+              if (csrfToken && !headers.has("X-CSRFToken")) {
+                  headers.set("X-CSRFToken", csrfToken);
+              }
+              fetchOptions.headers = headers;
+          }
+
+          return fetch(url, fetchOptions);
+      }
+
+      function refreshLibrary() {
+          cwaFetch("/cwa-library-refresh", {
+               method: "POST",
+               headers: {
+                   "Content-Type": "application/json"
+               }
+           })
+          .then(response => response.json())
+          .then(data => {
+            updateLibraryRefreshMessage(data.message);  // Show immediate confirmation
+            startCheckingMessages(); // Start checking for messages
+          })
+          .catch(error => console.error("Error:", error));
+      }
+
+      function checkLibraryMessages() {
+          cwaFetch("/cwa-library-refresh/messages")
+               .then(response => response.json())
+               .then(data => {
+                   if (data.messages.length > 0) {
+                     updateLibraryRefreshMessage(data.messages.join("<br>")); // Show messages
+                      stopCheckingMessages(); // Stop checking once we get a message
+                  }
+              })
+              .catch(error => console.error("Error fetching messages:", error));
+      }
+
+      function startCheckingMessages() {
+          if (!checkMessagesInterval) { // Prevent multiple intervals
+              checkMessagesInterval = setInterval(checkLibraryMessages, 500);
+          }
+      }
+
+      function stopCheckingMessages() {
+          if (checkMessagesInterval) {
+              clearInterval(checkMessagesInterval);
+              checkMessagesInterval = null;
+          }
+      }
+
+      function updateLibraryRefreshMessage(message) {
+        const messageDiv = document.getElementById("message_library_refresh");
+        const messagePara = document.getElementById("library_refresh_message")
+        if (messageDiv) {
+            messagePara.innerHTML = message; // Set the message inside the div
+            messageDiv.style.display = "inline-flex"; // Make sure it's visible
+        }
+      }
+
+    function dismissLibraryRefreshMessage() {
+        const messageDiv = document.getElementById("message_library_refresh");
+        const messagePara = document.getElementById("library_refresh_message")
+        if (messageDiv) {
+            messagePara.innerHTML = ""; // Set the message inside the div
+            messageDiv.style.display = "none"; // Make sure it's visible
+        }
+      }
+
+    </script>
+    {# Fork #323 (@olskar): admin-set custom CSS, last in <head> so it
+       overrides the shipped themes. '</style>' breakout is neutralized in
+       render_template.py, so |safe (raw, un-HTML-escaped) is correct here —
+       HTML-escaping would mangle valid CSS like the '>' child combinator. #}
+    {% if custom_css %}<style id="cwng-custom-css">{{ custom_css|safe }}</style>{% endif %}
+  </head>
+  {# Fork #205 (@goatdancer4000-sudo / @droM4X): per-user "Hide shelf badges
+     on covers" toggle wired to the book-organizer cog button. Setting lives
+     in user.view_settings.cover.hide_shelf_badges (no migration). #}
+  {%- set _cover_hide_shelf_badges = false -%}
+  {%- if current_user is defined and current_user and current_user.get_view_property is defined -%}
+    {%- set _cover_hide_shelf_badges = current_user.get_view_property('cover', 'hide_shelf_badges') -%}
+  {%- endif -%}
+  <body class="{{ page }} {{ bodyClass }}{% if g.current_theme == 1 %} blur{% endif %}{% if cwa_settings and cwa_settings.get('enable_mobile_blur') %} allow-mobile-blur{% endif %}{% if _cover_hide_shelf_badges %} cover-hide-shelf-badges{% endif %}" data-text="{{_('Home')}}" data-textback="{{_('Back')}}">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <!-- Static navbar -->
+    <div class="navbar navbar-default navbar-static-top" role="navigation">
+      <div class="container-fluid">
+        <div class="navbar-header">
+          <button type="button" class="navbar-toggle" data-toggle="collapse" data-target=".navbar-collapse">
+            <span class="sr-only">{{_('Toggle Navigation')}}</span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </button>
+          <a class="navbar-brand" href="{{url_for('web.index')}}">{{instance}}</a>
+        </div>
+        {% if g.current_theme == 1 %}
+            <div class="home-btn"><a class="home-btn-tooltip" href="{{url_for("web.index",page=1)}}" data-toggle="tooltip" title="" data-placement="bottom" data-original-title="Home"></a></div>
+            <div class="plexBack"><a href="{{url_for('web.index')}}"></a></div>
+        {% endif %}
+        {% if current_user.is_authenticated or g.allow_anonymous %}
+          <form class="navbar-form navbar-left" role="search" action="{{url_for('search.simple_search')}}" method="GET">
+            <div class="form-group input-group input-group-sm">
+              <label for="query" class="sr-only">{{_('Search')}}</label>
+              <input type="text" class="form-control" id="query" name="query" placeholder="{{_('Search Library')}}" value="{{searchterm}}">
+              <span class="input-group-btn">
+                <button type="submit" id="query_submit" class="btn btn-default">{{_('Search')}}</button>
+              </span>
+            </div>
+          </form>
+        {% endif %}
+        <div class="navbar-collapse collapse">
+          {% if current_user.is_authenticated or g.allow_anonymous %}
+          <ul class="nav navbar-nav ">
+            <li><a href="{{url_for('search.advanced_search')}}" id="advanced_search"><span class="glyphicon glyphicon-search" style="padding-left: 10px; padding-right: 6px;"></span><span class="hidden-sm"> {{_('Advanced Search')}}</span></a></li>
+            {# calibre-tracker override: link to the tracker app. Path assumes
+               same-domain subpath deployment (https://your-host/tracker/). If
+               you serve the tracker on a different host, change this href. #}
+            <li><a href="/tracker/" id="tracker_link"><span class="glyphicon glyphicon-book" style="padding-left: 10px; padding-right: 6px;"></span><span class="hidden-sm"> My Reading</span></a></li>
+          </ul>
+          {% endif %}
+          <ul class="nav navbar-nav navbar-right" id="main-nav">
+            {% if current_user.is_authenticated or g.allow_anonymous %}
+              {% if g.current_theme == 1 %}
+              <li class="dropdown"><a href="#" class="dropdown-toggle profileDrop" data-toggle="dropdown" role="button" aria-haspopup="true" aria-expanded="false"><span class="glyphicon glyphicon-user"></span></a>
+                <ul class="dropdown-menu profileDropli">
+                    <li><a id="top_user" data-text="{{_('Account')}}" href="{{url_for('web.profile')}}"><span class="glyphicon glyphicon-user"></span> <span class="hidden-sm">{{current_user.name}}</span></a></li>
+                    {% if g.allow_registration and not current_user.is_authenticated %}
+                    <li><a id="login" href="{{url_for('web.login')}}"><span class="glyphicon glyphicon-log-in"></span> {{_('Login')}}</a></li>
+                    <li><a id="register" href="{{url_for('web.register')}}"><span class="glyphicon glyphicon-user"></span> {{_('Register')}}</a></li>
+                    {% endif %}
+                    {% if not current_user.is_anonymous %}
+                    <li><a id="logout" href="{{url_for('web.logout', next=(request.path + "?" + request.query_string.decode("utf-8")).rstrip("?"))}}"><span class="glyphicon glyphicon-log-out"></span> <span class="hidden-sm">{{_('Logout')}}</span></a></li>
+                    {% endif %}
+                </ul>
+              </li>
+              {% endif %}
+              {# Fork issue #222 (droM4X): the disabled Switch Theme link
+                 lived here as inert visual clutter ("Temporarily disabled
+                 until v5.0.0"). Removed — if theme switching ships in a
+                 future release, re-introduce a working element. The CSS
+                 / JS / backend route remain as dead code (no UI surface). #}
+              {% if current_user.role_upload() and g.allow_upload %}
+                  <li>
+                    <form id="form-upload" class="navbar-form" action="{{ url_for('edit-book.upload') }}" data-title="{{_('Uploading...')}}" data-footer="{{_('Close')}}" data-failed="{{_('Error')}}" data-message="{{_('Upload done, processing, please wait...')}}" method="post" enctype="multipart/form-data">
+                      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                      <div class="form-group">
+                        <span class="btn btn-default btn-file">{{_('Upload')}}<input id="btn-upload" name="btn-upload"
+                        type="file" accept="{% for format in accept %}.{% if format != ''%}{{format}}{% else %}*{% endif %}{{ ',' if not loop.last }}{% endfor %}" multiple></span>
+                        <input class="hide" id="btn-upload2" name="btn-upload2" type="file" accept="{% for format in accept %}.{% if format != ''%}{{format}}{% else %}*{% endif %}{{ ',' if not loop.last }}{% endfor %}">
+                      </div>
+                    </form>
+                  </li>
+              {% endif %}
+              {% if not current_user.is_anonymous and not simple%}
+                <li class="top_tasks"><a id="top_tasks" href="{{url_for('tasks.get_tasks_status')}}"><span class="glyphicon glyphicon-tasks"></span> <span class="hidden-sm">{{_('Tasks')}}</span></a></li>
+              {% endif %}
+              {% if current_user.role_admin() %}
+                <li><a id="top_admin" data-text="{{_('Settings')}}" href="{{url_for('admin.admin')}}"><span class="glyphicon glyphicon-dashboard"></span> <span class="hidden-sm">{{_('Admin')}}</span></a></li>
+              {% endif %}
+              <li><a id="refresh-library" style="cursor: pointer;" data-text="{{_('Refresh Library')}}" onclick="refreshLibrary()"><span class="glyphicon glyphicon-refresh"></span> <span class="hidden-sm">{{_('Refresh Library')}}</span></a></li>
+              {% if g.current_theme == 0 %}
+              <li><a id="top_user" data-text="{{_('Account')}}" href="{% if not current_user.is_anonymous %}{{url_for('web.profile')}}{% else %}{{url_for('web.login', next=(request.path + "?" + request.query_string.decode("utf-8")).rstrip("?"))}}{% endif %}"><span class="glyphicon glyphicon-user"></span> <span class="hidden-sm">{{current_user.name}}</span></a></li>
+                {% if not current_user.is_anonymous %}
+                <li><a id="logout" href="{{url_for('web.logout', next=(request.path + "?" + request.query_string.decode("utf-8")).rstrip("?"))}}"><span class="glyphicon glyphicon-log-out"></span> <span class="hidden-sm">{{_('Logout')}}</span></a></li>
+                {% endif %}
+              {% endif %}
+            {% endif %}
+            {% if g.allow_registration and not current_user.is_authenticated and g.current_theme == 0 %}
+            <li><a id="login" href="{{url_for('web.login')}}"><span class="glyphicon glyphicon-log-in"></span> {{_('Login')}}</a></li>
+            <li><a id="register" href="{{url_for('web.register')}}"><span class="glyphicon glyphicon-user"></span> {{_('Register')}}</a></li>
+            {% endif %}
+          </ul>
+        </div><!--/.nav-collapse -->
+      </div>
+    </div>
+    
+    <div class="row-fluid text-center">
+      <div id="message_library_refresh" style="display: none;" class="alert alert-info refresh-cwa">
+        <p id="library_refresh_message"></p>
+        <button id="refresh_message_dismiss_btn" type="button" class="close" onclick="dismissLibraryRefreshMessage()" aria-label="Close">
+          <span aria-hidden="true">&times;</span>
+        </button>
+      </div>
+    </div>
+
+    {% for message in get_flashed_messages(with_categories=True) %}
+      {%if message[0] == "error" %}
+      <div class="row-fluid text-center" >
+        <div id="flash_danger" class="alert alert-danger">{{ message[1] }}</div>
+      </div>
+      {%endif%}
+      {%if message[0] == "info" %}
+      <div class="row-fluid text-center">
+        <div id="flash_info" class="alert alert-info">{{ message[1] }}</div>
+      </div>
+      {%endif%}
+      <div id="messageContainer"></div>
+      {%if message[0] == "cwa_update" %}
+      <div class="row-fluid text-center">
+        <div id="flash_info" class="alert alert-info alert-cwa">
+          {{ message[1] }} <a href="https://github.com/new-usemame/Calibre-Web-NextGen/releases">{{ _('See Changelog') }}</a>
+          <button type="button" class="close" data-dismiss="alert" aria-label="Close">
+            <span aria-hidden="true">&times;</span>
+          </button>
+        </div>
+      </div>
+      {%endif%}
+      {%if message[0] == "duplicate_scan_setup" %}
+      <div class="row-fluid text-center">
+        <div id="flash_info" class="alert alert-info alert-cwa">
+          {{ message[1] }} <a href="{{ url_for('duplicates.show_duplicates') }}">{{ _('Open Duplicates') }}</a>
+          <button type="button" class="close duplicate-scan-setup-dismiss"
+                  data-dismiss-url="{{ url_for('duplicates.dismiss_duplicate_scan_setup_notice') }}"
+                  data-dismiss="alert" aria-label="Close">
+            <span aria-hidden="true">&times;</span>
+          </button>
+        </div>
+      </div>
+      {%endif%}
+      {%if message[0] == "cwa_arch_warning" %}
+      <div class="row-fluid text-center">
+        <div id="flash_danger" class="alert alert-danger alert-cwa">
+          {{ message[1] }}
+          <button type="button" class="close" data-dismiss="alert" aria-label="Close">
+            <span aria-hidden="true">&times;</span>
+          </button>
+        </div>
+      </div>
+      {%endif%}
+      {%if message[0] == "translation_missing" %}
+      <div class="row-fluid text-center">
+        <div id="flash_info" class="alert alert-info alert-cwa">
+          {{ message[1] }} <a href="https://github.com/new-usemame/Calibre-Web-NextGen/wiki/Contributing-Translations">{{ _('Contribute here!') }}</a>
+          <button type="button" class="close" data-dismiss="alert" aria-label="Close">
+            <span aria-hidden="true">&times;</span>
+          </button>
+        </div>
+      </div>
+      {%endif%}
+      {%if message[0] == "theme_migration" %}
+      <div class="row-fluid text-center">
+        <div id="flash_info" class="alert alert-info alert-cwa">
+          {{ message[1] }}
+          <button type="button" class="close" data-dismiss="alert" aria-label="Close">
+            <span aria-hidden="true">&times;</span>
+          </button>
+        </div>
+      </div>
+      {%endif%}
+      {%if message[0] == "cwa_refresh" %}
+      <div class="row-fluid text-center">
+        <div id="flash_success" class="alert alert-info refresh-cwa">
+          {{ message[1] }}
+          <button type="button" class="close" data-dismiss="alert" aria-label="Close">
+            <span aria-hidden="true">&times;</span>
+          </button>
+        </div>
+      </div>
+      {%endif%}
+      {%if message[0] == "warning" %}
+      <div class="row-fluid text-center">
+        <div id="flash_warning" class="alert alert-warning">{{ message[1] }}</div>
+      </div>
+      {%endif%}
+      {%if message[0] == "success" %}
+      <div class="row-fluid text-center">
+        <div id="flash_success" class="alert alert-success">{{ message[1] }}</div>
+      </div>
+      {%endif%}
+    {% endfor %}
+    {% block flash %}{% endblock %}
+    {% if g.current_theme == 1 %}
+      <div id="loader" hidden="true">
+        <center>
+          <h3>{{_('Uploading...')}}</h3>
+          <span>{{_("Please do not refresh the page")}}</span>.
+        </center>
+      </div>
+    {%endif%}
+    <div class="container-fluid">
+      {# Fork #225 (@froggybottomboys): server-wide announcement banner.
+         Renders only when an admin has set server_announcement. Per-user
+         dismiss is client-side via localStorage keyed by a hash of the
+         announcement content — editing the text re-shows it for everyone.
+         Fork #288 (mobile pass 1): banner lives INSIDE .container-fluid so
+         it inherits the same offset that clears the fixed navbar; uses a
+         dedicated CSS class (NOT Bootstrap `.alert .alert-info`) because
+         caliBlur.css hijacks every `.alert` into a fixed-position toast
+         that auto-hides after 10s. Inline styles force flow-layout. #}
+      {% if server_announcement %}
+        <div id="serverAnnouncementBanner" class="cwng-server-announcement" data-announcement-content="{{ server_announcement }}"
+             style="position: relative; z-index: 5;
+                    display: flex; align-items: center; gap: 1em;
+                    margin: 56px 0 0.5em 0; padding: 12px 16px;
+                    background-color: #d9edf7; color: #31708f;
+                    border: 1px solid #bce8f1; border-radius: 4px;
+                    font-size: 14px; line-height: 1.4;">
+          <span class="glyphicon glyphicon-info-sign" aria-hidden="true" style="flex: 0 0 auto;"></span>
+          <span style="flex: 1 1 auto;">{{ server_announcement }}</span>
+          <button type="button" class="cwng-server-announcement-dismiss" id="serverAnnouncementDismiss" aria-label="{{ _('Dismiss') }}"
+                  style="flex: 0 0 auto; background: none; border: 0; padding: 0 4px;
+                         font-size: 22px; line-height: 1; color: inherit; opacity: 0.6; cursor: pointer;">
+            <span aria-hidden="true">&times;</span>
+          </button>
+        </div>
+        <script>
+          (function () {
+            var banner = document.getElementById('serverAnnouncementBanner');
+            if (!banner) return;
+            var content = banner.getAttribute('data-announcement-content') || '';
+            var hash = 0;
+            for (var i = 0; i < content.length; i++) {
+              hash = ((hash << 5) - hash) + content.charCodeAt(i);
+              hash |= 0;
+            }
+            var key = 'cwng_announcement_dismissed_' + hash;
+            if (localStorage.getItem(key) === '1') {
+              banner.style.display = 'none';
+              return;
+            }
+            var btn = document.getElementById('serverAnnouncementDismiss');
+            if (btn) {
+              btn.addEventListener('click', function () {
+                localStorage.setItem(key, '1');
+                banner.style.display = 'none';
+              });
+            }
+          })();
+        </script>
+      {% endif %}
+      <div class="row-fluid">
+        {% if current_user.is_authenticated or g.allow_anonymous %}
+        <div class="col-sm-2">
+          <nav class="navigation">
+            <ul class="list-unstyled" id="scnd-nav" intent in-standard-append="nav.navigation" in-mobile-after="#main-nav" in-mobile-class="nav navbar-nav">
+              <li class="nav-head hidden-xs">{{_('Browse')}}</li>
+              {% for element in sidebar %}
+                {% if current_user.check_visibility(element['visibility']) and element['public'] %}
+                    <li id="nav_{{element['id']}}" {% if page == element['page'] %}class="active"{% endif %} style="{% if element['id'] == 'duplicates' %}position: relative;{% endif %}">
+                      <a href="{{url_for(element['link'], data=element['page'], sort_param='stored')}}">
+                        <span class="glyphicon {{element['glyph']}}"></span> {{_(element['text'])}}
+                        {% if element['id'] == 'duplicates' %}
+                          {% set dup_count = duplicate_notification.count if duplicate_notification is defined else 0 %}
+                          <span id="duplicate-count-badge" class="duplicate-badge" style="{% if dup_count > 0 %}display: inline-block;{% else %}display: none;{% endif %}">
+                            {% if dup_count > 99 %}99+{% else %}{{ dup_count }}{% endif %}
+                          </span>
+                        {% endif %}
+                      </a>
+                    </li>
+                {% endif %}
+              {% endfor %}
+              {% if current_user.is_authenticated or g.allow_anonymous %}
+                <li class="nav-head hidden-xs public-shelves">{{_('Shelves')}}</li>
+                {% for shelf in g.shelves_access %}
+                  {% set book_count = shelf.books.count() %}
+                  <li><a href="{{url_for('shelf.show_shelf', shelf_id=shelf.id)}}" title="{{shelf.name}} ({{book_count}})"><span class="glyphicon glyphicon-list shelf"></span> {{shelf.name|shortentitle(40)}}{% if shelf.is_public == 1 %} {{_('(Public)')}}{% endif %} <span style="font-size: 80%; color: #888;">({{book_count}})</span></a></li>
+                {% endfor %}
+              {% if not current_user.is_anonymous %}
+                <li id="nav_createshelf" class="create-shelf"><a href="{{url_for('shelf.create_shelf')}}">{{_('Create Shelf')}}</a></li>
+                {# Fork #237 (@new-usemame): drag-to-reorder shelves. Surfaced only when the user has >1 shelf, since one shelf doesn't need reordering. #}
+                {% if g.shelves_access|length > 1 %}
+                  <li id="nav_reordershelves"><a href="{{url_for('shelf.reorder_shelves')}}">{{_('Reorder Shelves')}}</a></li>
+                {% endif %}
+              {% endif %}
+              {% endif %}
+              {% if current_user.is_authenticated and magic_shelf_routes.render %}
+                <li class="nav-head hidden-xs" style="margin-top: 1rem;">{{_('Magic Shelves ✨')}}</li>
+                  {% for shelf in g.magic_shelves_access %}
+                    <li><a href="{{url_for('web.render_magic_shelf', shelf_id=shelf.id)}}" title="{{shelf.name}} ({{shelf.book_count}})"><span style="font-size: 14px;">{{shelf.icon}}</span> {{shelf.name|shortentitle(40)}}{% if shelf.is_public == 1 %} {{_('(Public)')}}{% endif %} <span style="font-size: 80%; color: #888;">({{shelf.book_count}})</span></a></li>
+                  {% endfor %}
+                {% if magic_shelf_routes.create %}
+                  <li id="nav_createmagicshelf" class="create-shelf"><a href="{{url_for('web.create_magic_shelf')}}" style="display: flex; align-items: center;">{{_('Create Magic Shelf')}}</a></li>
+                {% endif %}
+              {% endif %}
+              <!-- {% if not current_user.is_anonymous %}
+                <li id="nav_about" {% if page == 'stat' %}class="active"{% endif %}><a href="{{url_for('about.package_versions')}}"><span class="glyphicon glyphicon-info-sign"></span> {{_('About')}}</a></li>
+              {% endif %} -->
+            </ul>
+          </nav>
+        </div>
+        {% endif %}
+        <div class="col-sm-10">
+          {% block body %}{% endblock %}
+          {% if pagination and (pagination.has_next or pagination.has_prev) %}
+            {# Top paginator — caliBlur CSS pins this fixed at top-right. #}
+            <div class="pagination">
+              {% if pagination.has_prev %}
+              <li class="page-item page-previous"><a class="page-link" aria-label="next page" href="{{ (pagination.page - 1)|url_for_other_page
+                }}">&laquo; {{_('Previous')}}</a></li>
+              {% endif %}
+            {% for page in pagination.iter_pages() %}
+              {% if page %}
+                {% if page != pagination.page %}
+                  <li class="page-item"><a class="page-link" aria-label="to page {{ page }}" href="{{ (page)|url_for_other_page }}">{{ page }}</a></li>
+                {% else %}
+                  <li class="page-item active"><a class="page-link" aria-label="to page {{ page }}" href="{{ (page)|url_for_other_page }}">{{ page }}</a></li>
+                {% endif %}
+              {% else %}
+                <li class="page-item page-last-separator disabled"><a class="page-link" aria-label="">…</a></li>
+              {% endif %}
+            {% endfor %}
+            {% if pagination.has_next %}
+              <li class="page-item page-next"><a class="page-link next" aria-label="next page" href="{{ (pagination.page + 1)|url_for_other_page
+                }}">{{_('Next')}} &raquo;</a></li>
+            {% endif %}
+            </div>
+            {# Fork issue #256 (droM4X): also render the paginator in-flow
+               at the end of the list, so users at the bottom of a long
+               scroll don't have to go back to the top to navigate. The
+               `.pagination-bottom` modifier scopes the `position: static`
+               override to this copy only (caliBlur.css). #}
+            <div class="pagination pagination-bottom">
+              {% if pagination.has_prev %}
+              <li class="page-item page-previous"><a class="page-link" aria-label="next page" href="{{ (pagination.page - 1)|url_for_other_page
+                }}">&laquo; {{_('Previous')}}</a></li>
+              {% endif %}
+            {% for page in pagination.iter_pages() %}
+              {% if page %}
+                {% if page != pagination.page %}
+                  <li class="page-item"><a class="page-link" aria-label="to page {{ page }}" href="{{ (page)|url_for_other_page }}">{{ page }}</a></li>
+                {% else %}
+                  <li class="page-item active"><a class="page-link" aria-label="to page {{ page }}" href="{{ (page)|url_for_other_page }}">{{ page }}</a></li>
+                {% endif %}
+              {% else %}
+                <li class="page-item page-last-separator disabled"><a class="page-link" aria-label="">…</a></li>
+              {% endif %}
+            {% endfor %}
+            {% if pagination.has_next %}
+              <li class="page-item page-next"><a class="page-link next" aria-label="next page" href="{{ (pagination.page + 1)|url_for_other_page
+                }}">{{_('Next')}} &raquo;</a></li>
+            {% endif %}
+            </div>
+          {% endif %}
+      </div>
+    </div>
+  </div>
+    <div class="modal fade" id="bookDetailsModal" tabindex="-1" role="dialog" aria-labelledby="bookDetailsModalLabel">
+      <div class="modal-dialog modal-lg" role="document">
+        <div class="modal-content">
+          <div class="modal-header">
+            <button type="button" class="close" data-dismiss="modal" aria-label="Close"><span aria-hidden="true">&times;</span></button>
+            <h4 class="modal-title" id="bookDetailsModalLabel">{{_('Book Details')}}</h4>
+          </div>
+          <div class="modal-body">...</div>
+          <div class="modal-footer">
+            <button type="button" id="details_close" class="btn btn-default" data-dismiss="modal">{{_('Close')}}</button>
+          </div>
+        </div>
+      </div>
+    </div>
+    {% block modal %}{% endblock %}
+    <!-- jQuery (necessary for Bootstrap's JavaScript plugins) -->
+    <script src="{{ url_for('static', filename='js/libs/jquery.min.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/libs/bootstrap.min.js') }}"></script>
+
+  <!-- Patch: Define global bootstrap object for plugins expecting Bootstrap 5+ -->
+  <script>window.bootstrap = window.bootstrap || {};</script>
+    <!-- Include all compiled plugins (below), or include individual files as needed -->
+    <script src="{{ url_for('static', filename='js/libs/underscore-umd-min.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/libs/intention.min.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/libs/context.min.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/libs/plugins.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/libs/jquery.form.min.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/uploadprogress.js') }}"> </script>
+    <script src="{{ url_for('static', filename='js/main.js') }}"></script>
+    {% if g.current_theme == 1 %}
+      <script src="{{ url_for('static', filename='js/libs/jquery.visible.min.js') }}"></script>
+      <script src="{{ url_for('static', filename='js/libs/compromise.min.js') }}"></script>
+      <script src="{{ url_for('static', filename='js/libs/readmore.min.js') }}"></script>
+      <script>
+        // Make script root available for JS
+        window.scriptRoot = "{{ request.script_root }}";
+        // Make user email data available for quick actions
+        window.cwaUserData = {};
+        {% if current_user.kindle_mail and current_user.kindle_mail.strip() %}
+        window.cwaUserData.primaryEmail = "{{ current_user.kindle_mail.split(',')[0].strip() }}";
+        {% else %}
+        window.cwaUserData.primaryEmail = null;
+        {% endif %}
+        // Add user permissions
+        window.cwaUserData.canEditBooks = {{ 'true' if current_user.role_edit() else 'false' }};
+      </script>
+      <script src="{{ url_for('static', filename='js/caliBlur.js') }}"></script>
+    {% endif %}
+    {% if current_user.is_authenticated and current_user.role_edit() %}
+    <!-- Drag-and-drop merge modal -->
+    <div id="book-merge-modal"
+         class="book-merge-modal-backdrop"
+         hidden
+         aria-hidden="true"
+         aria-modal="true"
+         role="dialog"
+         aria-labelledby="book-merge-modal-title">
+      <div class="book-merge-modal-dialog">
+        <div class="book-merge-modal-header">
+          <h4 id="book-merge-modal-title">
+            <span class="glyphicon glyphicon-random" aria-hidden="true"></span>
+            {{_('Merge Books')}}
+          </h4>
+        </div>
+        <div class="book-merge-modal-body">
+          <p class="book-merge-warning">
+            <span class="glyphicon glyphicon-warning-sign" aria-hidden="true"></span>
+            {{_('This cannot be undone.')}}
+          </p>
+          <div class="book-merge-cards">
+            <div class="book-merge-card book-merge-card-source">
+              <div class="book-merge-card-label book-merge-label-delete">
+                <span class="glyphicon glyphicon-remove" aria-hidden="true"></span>
+                {{_('Will be deleted')}}
+              </div>
+              <div class="book-merge-card-title" data-merge-source-title></div>
+              <div class="book-merge-card-formats">
+                {{_('Formats:')}} <span data-merge-source-formats></span>
+              </div>
+            </div>
+            <div class="book-merge-arrow" aria-hidden="true">
+              <span class="glyphicon glyphicon-arrow-right"></span>
+            </div>
+            <div class="book-merge-card book-merge-card-keeper">
+              <div class="book-merge-card-label book-merge-label-keep">
+                <span class="glyphicon glyphicon-ok" aria-hidden="true"></span>
+                {{_('Will be kept')}}
+              </div>
+              <div class="book-merge-card-title" data-merge-keeper-title></div>
+              <div class="book-merge-card-formats">
+                {{_('Formats:')}} <span data-merge-keeper-formats></span>
+              </div>
+            </div>
+          </div>
+          <!-- Shown when source has formats the keeper already has -->
+          <div class="book-merge-conflicts" data-merge-conflicts hidden>
+            <div class="book-merge-conflicts-header">
+              <span class="glyphicon glyphicon-question-sign" aria-hidden="true"></span>
+              {{_('Format conflicts — choose what to do:')}}
+            </div>
+            <div data-merge-conflict-rows></div>
+          </div>
+          <div class="book-merge-result">
+            <span class="glyphicon glyphicon-book" aria-hidden="true"></span>
+            {{_('Result will have formats:')}} <strong data-merge-result-formats></strong>
+          </div>
+        </div>
+        <div class="book-merge-modal-footer">
+          <button type="button" class="btn btn-default" data-merge-cancel>
+            {{_('Cancel')}}
+          </button>
+          <button type="button" class="btn btn-danger" data-merge-confirm>
+            <span class="glyphicon glyphicon-random" aria-hidden="true"></span>
+            {{_('Merge &amp; Delete Source')}}
+          </button>
+        </div>
+      </div>
+    </div>
+    <script src="{{ url_for('static', filename='js/drag-drop-merge.js') }}"></script>
+    {% endif %}
+    {% block js %}{% endblock %}
+    {% if current_user.is_authenticated %}
+    <script src="{{ url_for('static', filename='user-profile-data/CWA-profile-updater.js') }}"></script>
+    {% endif %}
+    <!-- Makes sure filter buttons are only on the title bar of the page when there is no pagination -->
+    <script>
+      function updateFilterHeaderFixed() {
+        document.querySelectorAll('.row-fluid').forEach(function(row) {
+          var filterheader = row.querySelector('.filterheader');
+          if (!filterheader) return;
+          var hasPagination = !!row.querySelector('.pagination');
+          if (window.innerWidth >= 915 && !hasPagination) {
+            filterheader.classList.add('filterheader-fixed');
+          } else {
+            filterheader.classList.remove('filterheader-fixed');
+          }
+        });
+      }
+      window.addEventListener('DOMContentLoaded', updateFilterHeaderFixed);
+      window.addEventListener('resize', updateFilterHeaderFixed);
+      </script>
+    {% if current_user.is_authenticated and (current_user.role_admin() or current_user.role_edit()) %}
+    <!-- Duplicate Notification Modal -->
+    <div id="duplicate-notification-backdrop" class="duplicate-notification-backdrop"></div>
+    <div id="duplicate-notification-modal" class="duplicate-notification-modal" tabindex="-1" role="dialog" aria-labelledby="duplicate-notification-title">
+      <div class="duplicate-notification-header">
+        <button id="duplicate-notification-close" class="duplicate-notification-close" aria-label="{{_('Close')}}">&times;</button>
+        <h2 id="duplicate-notification-title">{{_('Duplicate Books Detected')}}</h2>
+        <p>{{_('You have unresolved duplicate books in your library')}}</p>
+      </div>
+      <div class="duplicate-notification-body">
+        <div class="duplicate-count-section">
+          <div class="duplicate-count-badge" id="duplicate-notification-count">0</div>
+          <h3>{{_('Duplicate Groups Found')}}</h3>
+        </div>
+        <ul id="duplicate-notification-preview" class="duplicate-preview-list">
+          <!-- Preview items will be inserted here by JavaScript -->
+        </ul>
+      </div>
+      <div class="duplicate-notification-footer">
+        <button id="duplicate-notification-remind" class="duplicate-notification-btn duplicate-notification-btn-secondary">
+          {{_('Remind Me Later')}}
+        </button>
+        <a href="{{ url_for('duplicates.show_duplicates') }}" class="duplicate-notification-btn duplicate-notification-btn-primary">
+          {{_('View & Resolve Duplicates')}}
+        </a>
+      </div>
+    </div>
+    <script>
+      window.cwaDuplicateBootstrap = {{ duplicate_notification|tojson if duplicate_notification is defined else '{}' }};
+    </script>
+    <script src="{{ url_for('static', filename='js/duplicate-notifier.js') }}"></script>
+    {% endif %}
+    <button id="scroll-to-top-btn" class="scroll-to-top-btn" type="button" aria-label="{{ _('Scroll to top') }}" hidden>
+      <span class="glyphicon glyphicon-chevron-up" aria-hidden="true"></span>
+      <span class="scroll-to-top-label">{{ _('Top') }}</span>
+    </button>
+    <style>
+      .scroll-to-top-btn {
+        position: fixed;
+        top: 70px;
+        left: 50%;
+        transform: translateX(-50%) translateY(-8px);
+        z-index: 1030;
+        padding: 6px 14px;
+        border: 0;
+        border-radius: 999px;
+        background: rgba(31, 42, 54, 0.94);
+        color: #fff;
+        font-weight: 600;
+        font-size: 13px;
+        display: none;
+        align-items: center;
+        gap: 6px;
+        box-shadow: 0 6px 16px rgba(0, 0, 0, 0.45);
+        opacity: 0;
+        transition: opacity 0.18s ease, transform 0.18s ease;
+        cursor: pointer;
+        backdrop-filter: blur(4px);
+        -webkit-backdrop-filter: blur(4px);
+      }
+      .scroll-to-top-btn .glyphicon { font-size: 11px; }
+      @media (max-width: 767px) {
+        .scroll-to-top-btn.is-visible {
+          display: inline-flex;
+          opacity: 1;
+          transform: translateX(-50%) translateY(0);
+        }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        .scroll-to-top-btn { transition: none; }
+      }
+    </style>
+    <script>
+      (function () {
+        var btn = document.getElementById("scroll-to-top-btn");
+        if (!btn) return;
+        var THRESHOLD = 200;
+        function getScroller() {
+          // caliBlur scrolls on .col-sm-10.content-expanded, not on window.
+          return document.querySelector(".col-sm-10.content-expanded")
+              || document.scrollingElement
+              || document.documentElement;
+        }
+        function getScrollY() {
+          var s = getScroller();
+          return s === document.documentElement || s === document.body
+            ? window.scrollY
+            : s.scrollTop;
+        }
+        function update() {
+          var mobile = window.matchMedia("(max-width: 767px)").matches;
+          var show = mobile && getScrollY() > THRESHOLD;
+          btn.classList.toggle("is-visible", show);
+          if (show) btn.removeAttribute("hidden");
+        }
+        btn.addEventListener("click", function () {
+          var reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+          var s = getScroller();
+          var opts = { top: 0, behavior: reduced ? "auto" : "smooth" };
+          if (s === document.documentElement || s === document.body) {
+            window.scrollTo(opts);
+          } else {
+            s.scrollTo(opts);
+          }
+        });
+        // Listen on both — different layouts scroll different elements.
+        window.addEventListener("scroll", update, { passive: true });
+        window.addEventListener("resize", update);
+        document.addEventListener("DOMContentLoaded", function () {
+          var s = getScroller();
+          if (s !== document.documentElement && s !== document.body) {
+            s.addEventListener("scroll", update, { passive: true });
+          }
+          update();
+        });
+      })();
+    </script>
+    {% if current_user.is_authenticated %}
+    <div id="book-organizer-confirm-backdrop" class="book-organizer-confirm-backdrop" hidden>
+      <div class="book-organizer-confirm" role="dialog" aria-modal="true" aria-labelledby="book-organizer-confirm-title">
+        <div class="book-organizer-confirm-header" id="book-organizer-confirm-title"></div>
+        <div class="book-organizer-confirm-body" data-organizer-confirm-body></div>
+        <div class="book-organizer-confirm-footer">
+          <button type="button" class="btn btn-default" data-organizer-confirm-action="cancel">{{ _('Cancel') }}</button>
+          <button type="button" class="btn btn-danger" data-organizer-confirm-action="ok">{{ _('Confirm') }}</button>
+        </div>
+      </div>
+    </div>
+    <script>
+      window.bookOrganizerI18n = {
+        addedToShelf: "{{ _('Added {n} books to {shelf}') }}",
+        addedToShelfPartial: "{{ _('Added {ok} of {n} books to {shelf} (rest were already there)') }}",
+        allAlreadyOnShelf: "{{ _('All {n} book(s) were already on {shelf}.') }}",
+        markedRead: "{{ _('Marked {n} books as read') }}",
+        markedUnread: "{{ _('Marked {n} books as unread') }}",
+        deleted: "{{ _('Deleted {n} books') }}",
+        confirmDeleteTitle: "{{ _('Delete books?') }}",
+        confirmDeleteBody: "{{ _('This will permanently delete {n} book(s) from your library. This cannot be undone.') }}",
+        nothingSelected: "{{ _('Select at least one book first.') }}",
+        requestFailed: "{{ _('Request failed: {err}') }}"
+      };
+    </script>
+    <script src="{{ url_for('static', filename='js/book_organizer.js') }}"></script>
+    {% endif %}
+  </body>
+</html>

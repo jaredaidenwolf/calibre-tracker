@@ -1,0 +1,94 @@
+{# layout.html — tracker-native shell that visually matches Calibre-Web NextGen's
+   caliBlur! Dark theme. Loads Bootstrap 3 + jQuery from CDN and the vendored
+   caliBlur CSS that lives under app/static/css/cwa/. Pages should not extend
+   this directly — extend base.html instead, which mounts tracker.css and
+   the "My Reading" nav. #}
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <title>{% block title %}Calibre Reading Tracker{% endblock %}</title>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge,chrome=1">
+    <meta name="mobile-web-app-capable" content="yes">
+
+    {# Bootstrap 3 from CDN — same major version CWN uses; brings glyphicons too. #}
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@3.4.1/dist/css/bootstrap.min.css">
+
+    {# CWN-vendored CSS, copied verbatim from the live container so the tracker
+       inherits the exact caliBlur look without depending on a runtime proxy. #}
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/cwa/style.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/cwa/caliBlur.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/cwa/caliBlur_override.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/cwa/cwa.css') }}">
+
+    {# Override point for base.html (tracker.css) or per-page sheets. #}
+    {% block head_extras %}{% endblock %}
+  </head>
+  {# `blur` is the body class caliBlur targets for its dark-theme rules. #}
+  <body class="{% block body_class %}page-tracker{% endblock %} blur">
+
+    <div class="navbar navbar-default navbar-static-top" role="navigation">
+      <div class="container-fluid">
+        <div class="navbar-header">
+          <button type="button" class="navbar-toggle" data-toggle="collapse" data-target=".navbar-collapse">
+            <span class="sr-only">Toggle Navigation</span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </button>
+          <a class="navbar-brand" href="/">Reading Tracker</a>
+        </div>
+
+        <div class="navbar-collapse collapse">
+          <ul class="nav navbar-nav">
+            {# Tracker's own primary navigation. Pages add to this via navbar_extra. #}
+            {% block navbar_primary %}{% endblock %}
+            {% block navbar_extra %}{% endblock %}
+          </ul>
+
+          <ul class="nav navbar-nav navbar-right">
+            {% if current_user.is_authenticated %}
+              <li>
+                <a href="{{ config.get('CWA_BASE_URL', '/') }}" title="Back to Calibre Web">
+                  <span class="glyphicon glyphicon-book"></span>
+                  <span class="hidden-sm"> Library</span>
+                </a>
+              </li>
+              <li>
+                <a href="{{ url_for('auth.logout') }}">
+                  <span class="glyphicon glyphicon-log-out"></span>
+                  <span class="hidden-sm"> Logout</span>
+                </a>
+              </li>
+            {% endif %}
+          </ul>
+        </div>
+      </div>
+    </div>
+
+    {# Flash slot — pages opt in via base.html's wrapper. #}
+    {% block flash %}
+      {% with messages = get_flashed_messages(with_categories=true) %}
+        {% if messages %}
+          <div class="container-fluid">
+            {% for category, message in messages %}
+              <div class="alert alert-{{ category if category in ('success','info','warning','danger') else 'info' }}" role="alert">
+                {{ message }}
+              </div>
+            {% endfor %}
+          </div>
+        {% endif %}
+      {% endwith %}
+    {% endblock %}
+
+    <div class="container-fluid tracker-main">
+      {% block body %}{% endblock %}
+    </div>
+
+    {# jQuery + Bootstrap JS for navbar collapse / dropdowns. #}
+    <script src="https://cdn.jsdelivr.net/npm/jquery@3.7.1/dist/jquery.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@3.4.1/dist/js/bootstrap.min.js"></script>
+    {% block js %}{% endblock %}
+  </body>
+</html>

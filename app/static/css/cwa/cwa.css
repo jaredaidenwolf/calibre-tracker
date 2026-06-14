@@ -1,0 +1,233 @@
+/* Truncates a books description if if spans more than 8 lines */
+dd.meta_description {
+    display: -webkit-box;
+    -webkit-line-clamp: 15;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+}
+
+body.admin h2 {
+    font-size: 28px !important;
+    font-weight: bold !important;
+    margin-bottom: 30px !important;
+}
+
+/* Fix z-index issues with specific elements that show through modals */
+body.modal-open .book-meta > .author > a:first-of-type:before,
+body.modal-open div.tags > p > span.glyphicon.glyphicon-tags,
+body.modal-open #remove-from-shelves + .identifiers,
+body.modal-open #remove-from-shelves + .languages, 
+body.modal-open #remove-from-shelves + .publishers,
+body.modal-open #remove-from-shelves + .publishing-date,
+body.modal-open #remove-from-shelves + .tags {
+    z-index: -1 !important;
+}
+/* Dim and indicate globally disabled metadata providers in modal */
+.provider-disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+.provider-disabled .glyphicon-ok {
+  display: none;
+}
+
+/* Target only specific selectpicker dropdowns (Tags and other form elements) */
+
+/* #include_serie + .btn-group .dropdown-menu,
+#exclude_serie + .btn-group .dropdown-menu,
+#include_shelf + .btn-group .dropdown-menu,
+#exclude_shelf + .btn-group .dropdown-menu,
+#include_language + .btn-group .dropdown-menu,
+#exclude_language + .btn-group .dropdown-menu,
+#include_extension + .btn-group .dropdown-menu,
+#exclude_extension + .btn-group .dropdown-menu, */
+#include_tag + .btn-group .dropdown-menu,
+#exclude_tag + .btn-group .dropdown-menu {
+    max-width: 40vw;
+}
+
+/* Inline cover-URL live preview on the edit-metadata page (PR: focused
+   cover picker — see notes/COVER-PICKER-DESIGN.md). Compact preview
+   thumbnail + dimensions + a friendly error before save round-trip.
+   Theme-aware: caliBlur (body.blur) gets darker chrome, light theme
+   keeps the original light treatment. */
+.cwa-cover-url-preview {
+    --cup-bg: #f5f5f5;
+    --cup-text: #555;
+    --cup-thumb-border: #ddd;
+    --cup-thumb-bg: #fff;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-top: 6px;
+    padding: 6px;
+    background: var(--cup-bg);
+    border-radius: 4px;
+    color: var(--cup-text);
+}
+body.blur .cwa-cover-url-preview {
+    --cup-bg: #2c2c2c;
+    --cup-text: #d0d0d0;
+    --cup-thumb-border: #404040;
+    --cup-thumb-bg: #1a1a1a;
+}
+.cwa-cover-url-preview img {
+    max-width: 70px;
+    max-height: 100px;
+    border: 1px solid var(--cup-thumb-border);
+    border-radius: 3px;
+    background: var(--cup-thumb-bg);
+}
+.cwa-cover-url-preview > div {
+    font-size: 12px;
+    color: var(--cup-text);
+}
+.cwa-cover-url-feedback {
+    font-size: 12px;
+    margin-top: 4px;
+    min-height: 1.2em;
+}
+.cwa-cover-url-feedback.is-ok    { color: #468847; }
+.cwa-cover-url-feedback.is-error { color: #b94a48; }
+body.blur .cwa-cover-url-feedback.is-ok    { color: #6cd078; }
+body.blur .cwa-cover-url-feedback.is-error { color: #ff7676; }
+.cwa-cover-picker__entry         { margin-top: 4px; }
+
+/* ------------------------------------------------------------------------
+   Cover-change affordance (book detail + edit pages).
+   Make the cover image itself the obvious way to change a cover instead of
+   hunting for a tiny icon in the action row. The template gates this on
+   edit permission by adding `.cover-editable` to the cover container. An
+   always-visible corner badge keeps it discoverable on touch (no hover),
+   and a full hover/focus overlay spells out the action in words.
+   ------------------------------------------------------------------------ */
+.cover-editable                  { position: relative; display: inline-block; }
+.cover-editable > img            { display: block; }
+.cover-change-overlay {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    text-decoration: none;
+    border-radius: 12px;
+    color: #fff;
+    cursor: pointer;
+}
+.cover-change-overlay::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    background: rgba(0, 0, 0, 0);
+    transition: background .15s ease;
+}
+.cover-change-overlay__hint {
+    position: relative;
+    z-index: 1;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 9px 15px;
+    border-radius: 999px;
+    background: rgba(0, 0, 0, 0.74);
+    font-size: 14px;
+    font-weight: 600;
+    line-height: 1;
+    opacity: 0;
+    transform: translateY(6px);
+    transition: opacity .15s ease, transform .15s ease;
+    pointer-events: none;
+}
+.cover-change-badge {
+    position: absolute;
+    right: 8px;
+    bottom: 8px;
+    z-index: 1;
+    width: 36px;
+    height: 36px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 50%;
+    background: rgba(0, 0, 0, 0.74);
+    color: #fff;
+    font-size: 16px;
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.4);
+    border: 1px solid rgba(255, 255, 255, 0.28);
+    transition: background .15s ease, transform .15s ease;
+}
+.cover-editable:hover .cover-change-overlay::before,
+.cover-change-overlay:focus-visible::before { background: rgba(0, 0, 0, 0.45); }
+.cover-editable:hover .cover-change-overlay__hint,
+.cover-change-overlay:focus-visible .cover-change-overlay__hint {
+    opacity: 1;
+    transform: translateY(0);
+}
+.cover-editable:hover .cover-change-badge,
+.cover-change-overlay:focus-visible .cover-change-badge { background: #2a6ed4; transform: scale(1.06); }
+.cover-change-overlay:focus-visible { outline: 2px solid #fff; outline-offset: 3px; }
+
+/* ------------------------------------------------------------------------
+   Form action footers (Save / Cancel button rows). Right-aligned, gap'd,
+   with Cancel using a distinguishable secondary style. Apply by wrapping
+   the buttons in `.cwa-form-actions` (or by hand-writing the flex). The
+   `.btn-secondary` class is used on the Cancel link so it stays light on
+   both Bootstrap-3 light and caliBlur dark.
+   ------------------------------------------------------------------------ */
+.cwa-form-actions {
+    display: flex;
+    flex-direction: row;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    align-items: stretch;
+    gap: 0.75rem;
+    margin-bottom: 1rem;
+}
+
+/* Equalize Save / Cancel heights. Cancel (anchor + .btn-secondary) and Save
+   (.btn-default on caliBlur) ship with mismatched padding + border defaults,
+   so a naive pairing renders Cancel ~5 px taller. Force a fixed 38 px box
+   with centered content on every .btn in the row, regardless of element
+   type. !important is needed because some inline page styles (cf.
+   config_edit.html) bump .btn padding above what we want here. */
+.cwa-form-actions .btn,
+.cwa-form-actions a.btn,
+.cwa-form-actions button.btn {
+    height: 38px !important;
+    min-height: 38px !important;
+    padding-top: 0 !important;
+    padding-bottom: 0 !important;
+    line-height: 1 !important;
+    border-width: 1px !important;
+    border-style: solid !important;
+    box-sizing: border-box !important;
+    display: inline-flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+}
+.cwa-form-actions .btn-default {
+    border-color: transparent !important;
+}
+
+.btn-secondary {
+    background-color: #ffffff;
+    color: #cc7b19;
+    border: 1px solid #cc7b19;
+}
+.btn-secondary:hover,
+.btn-secondary:focus,
+.btn-secondary:active {
+    background-color: #fdf3e7;
+    color: #cc7b19;
+    border-color: #cc7b19;
+    text-decoration: none;
+}
+body.blur .btn-secondary {
+    background-color: rgba(255, 255, 255, 0.92);
+}
+body.blur .btn-secondary:hover,
+body.blur .btn-secondary:focus,
+body.blur .btn-secondary:active {
+    background-color: #ffffff;
+}
