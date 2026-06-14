@@ -37,6 +37,7 @@ def create_app(config: str | Config | None = None) -> Flask:
 
     _register_routes(app)
     _register_auth(app)
+    _register_tracker(app)
 
     return app
 
@@ -46,6 +47,13 @@ def _register_auth(app: Flask) -> None:
     from .auth.routes import register_auth
 
     register_auth(app)
+
+
+def _register_tracker(app: Flask) -> None:
+    """Wire the tracker blueprint (reading-log routes)."""
+    from .tracker.routes import register_tracker
+
+    register_tracker(app)
 
 
 def _apply_config(app: Flask, cfg: Config) -> None:
