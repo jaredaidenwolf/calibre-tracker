@@ -1,0 +1,16 @@
+{#
+  progress_bar.html — Render a slim reading-progress bar.
+
+  Params:
+    percent (int|float) — 0..100. Anything outside is clamped.
+    label   (str|None)  — optional label rendered above the bar.
+#}
+{% set percent = percent if percent is defined else 0 %}
+{% set percent = 100 if percent > 100 else (0 if percent < 0 else percent) %}
+{% set label = label if label is defined else None %}
+
+{% if label %}<div class="goal-ring-label">{{ label }}</div>{% endif %}
+<div class="reading-progress" role="progressbar"
+     aria-valuemin="0" aria-valuemax="100" aria-valuenow="{{ percent }}">
+  <div class="reading-progress-fill" style="width: {{ percent }}%;"></div>
+</div>

@@ -1,0 +1,43 @@
+{#
+  book_card.html — Render a single book as a cover-forward card.
+
+  Params:
+    book   (BookDTO)   — required; see app/calibre/repository.py
+    status (str|None)  — optional reading status; renders a status badge
+    rating (int|None)  — optional 1..10 rating; renders static star row
+    href   (str|None)  — link target; defaults to /book/<id>
+#}
+{% set book   = book   if book   is defined else None %}
+{% set status = status if status is defined else None %}
+{% set rating = rating if rating is defined else None %}
+{% set href   = href   if href   is defined else ('/book/' ~ book.id) %}
+
+{% if book %}
+<a class="book-card-tracker" href="{{ href }}">
+  {% if status %}
+    <span class="badge-status badge-{{ status | replace('_', '-') }}">
+      {{ status | replace('_', ' ') }}
+    </span>
+  {% endif %}
+
+  <div class="book-cover">
+    {% if book.has_cover %}
+      <img src="/cover/{{ book.id }}" alt="Cover of {{ book.title }}">
+    {% else %}
+      <div class="cover-fallback">
+        <span>{{ book.title }}</span>
+      </div>
+    {% endif %}
+  </div>
+
+  <div class="book-card-meta">
+    <p class="book-card-title">{{ book.title }}</p>
+    {% if book.authors %}
+      <p class="book-card-author">{{ book.authors | join(', ') }}</p>
+    {% endif %}
+    {% if rating %}
+      {% include 'components/rating_stars.html' %}
+    {% endif %}
+  </div>
+</a>
+{% endif %}
