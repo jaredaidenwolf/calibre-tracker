@@ -1,11 +1,13 @@
 ---
 created: 2026-06-12
-modified: 2026-06-13
+modified: 2026-06-14
 ---
 # Calibre Reading Tracker — Docker & Project Architecture
 
 ```table-of-contents
 ```
+
+> **Status (2026-06-14):** the project directory structure, request/response flow, and volume-mount layout below are accurate against the current code. The actual `Dockerfile`, `docker-compose.yml`, and Unraid template are still forward-looking — they ship in Phase 10. Until then, local development uses fixture databases under `tests/fixtures/` (see the project `README.md`).
 
 ## Container Strategy
 
@@ -242,17 +244,26 @@ sequenceDiagram
 
 ## Environment Variables
 
-| Variable | Example | Description |
-|---|---|---|
-| `TRACKER_SECRET_KEY` | `openssl rand -hex 32` | Flask session signing key |
-| `CALIBRE_DB_PATH` | `/calibre-library/metadata.db` | Path to Calibre's metadata.db |
-| `CWA_DB_PATH` | `/cwa/app.db` | Path to CWN's app.db |
-| `TRACKER_DB_PATH` | `/config/tracker.db` | Path to your tracker.db |
-| `TZ` | `America/New_York` | Container timezone |
-| `LOG_LEVEL` | `INFO` | Python logging level |
-| `MAX_CONTENT_LENGTH` | `16777216` | Max upload size (16MB, for future cover uploads) |
+| Variable | Required? | Example | Description |
+|---|---|---|---|
+| `TRACKER_SECRET_KEY` | **yes** | `openssl rand -hex 32` | The tracker's own Flask session signing key. **Different from `CWA_SECRET_KEY`** — the tracker signs its own Flask-Login session cookie. |
+| `CWA_SECRET_KEY` | **yes** | matches CWN's `SECRET_KEY` | CWN's Flask `SECRET_KEY`. Used **only** to verify CWN's signed session cookie. Set the same value in CWN's container env (it doesn't read from `app.db`'s `flask_settings` once `SECRET_KEY` is in env). |
+| `CALIBRE_DB_PATH` | **yes** | `/calibre-library/metadata.db` | Path to Calibre's `metadata.db` (read-only). |
+| `CALIBRE_LIBRARY_PATH` | recommended | `/calibre-library` | Root of the Calibre library — used to resolve cover paths and (in Phase 6) stream them via `/cover/<id>`. Defaults to the parent of `CALIBRE_DB_PATH`. |
+| `CWA_DB_PATH` | **yes** | `/cwa/app.db` | Path to CWN's `app.db` (read-only). |
+| `TRACKER_DB_PATH` | **yes** | `/config/tracker.db` | The tracker's own writable SQLite database. |
+| `CWA_COOKIE_PREFIX` | optional | `""` (empty) | Mirrors CWN's `COOKIE_PREFIX` env var. Cookie name = `f"{prefix}session"`. Confirm with `docker exec calibre-web printenv COOKIE_PREFIX`. |
+| `CWA_BASE_URL` | optional | `http://localhost:8083` | Where the tracker's "Library" nav link and `/auth/logout` redirect to. |
+| `AUTH_MODE` | optional | `cookie` (default) or `form` | `cookie` = Scenario A (ride CWN's signed cookie). `form` = Scenario B fallback (bcrypt check against CWN's `user` table). |
+| `FLASK_CONFIG` | optional | `dev` (default) / `prod` / `test` | Config profile selector. |
+| `FLASK_APP` | dev only | `app:create_app` | Required when running `flask run` or `flask db …`. |
+| `TZ` | optional | `America/New_York` | Container timezone. |
+| `LOG_LEVEL` | optional | `INFO` | Python logging level. |
+| `MAX_CONTENT_LENGTH` | optional | `16777216` | Max upload size (16 MiB, for future cover uploads). |
 
-> **Note:** Do not use the same `SECRET_KEY` as CWN unless you explicitly want to share sessions across both apps (same domain required). Using different keys is safer.
+> **Note:** `TRACKER_SECRET_KEY` and `CWA_SECRET_KEY` should be **different** values. They serve different purposes: `CWA_SECRET_KEY` verifies CWN's cookie; `TRACKER_SECRET_KEY` signs the tracker's own Flask-Login session.
+
+> **`SECRET_KEY` on the CWN side.** CWN reads `SECRET_KEY` from env first, then falls back to a row in `app.db`'s `flask_settings.flask_session_key` (auto-generated on first boot). The bridge assumes env-set — make sure to add `- SECRET_KEY=<your_value>` to CWN's compose and restart it once. Existing CWN sessions are invalidated by the change (a single re-login fixes it).
 
 ## Calibre Web NextGen — Relevant Environment Variables
 
