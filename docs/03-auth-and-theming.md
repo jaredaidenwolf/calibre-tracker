@@ -24,6 +24,8 @@ With this setup, both apps are on the same domain. Your reverse proxy (Nginx Pro
 
 The tracker reads the incoming session cookie, looks it up in CWA's `app.db`, and if valid, considers the user authenticated. **No separate login needed.**
 
+> ⚠ **Cookie-name collision avoided.** Both apps are Flask, so both default to the cookie name `session` (for Flask's signed session) and `remember_token` (for Flask-Login remember-me). On a shared host the browser has one cookie jar slot per `(host, name)` pair, so whichever app sets `session` *last* clobbers the other's value — which would put the tracker and CWN into a permanent overwrite loop and break the auto-auth flow. The tracker side-steps this by configuring `SESSION_COOKIE_NAME = "tracker_session"` and `REMEMBER_COOKIE_NAME = "tracker_remember"` in `app/config.py`. The two apps' cookie jars stay disjoint and a tracker response never touches CWN's `session` cookie. See `tests/test_cookie_isolation.py` for the regression suite that pins this.
+
 ### Scenario B: Separate Subdomain
 
 ```

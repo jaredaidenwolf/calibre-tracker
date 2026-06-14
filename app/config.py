@@ -43,6 +43,19 @@ class Config:
 
     SQLALCHEMY_TRACK_MODIFICATIONS: bool = False
 
+    # ── Cookie names ────────────────────────────────────────────────────────
+    # The tracker and Calibre-Web NextGen run on the same host (same domain
+    # in production, same localhost in dev). Both default to Flask's cookie
+    # name "session" and Flask-Login's "remember_token". When two apps on
+    # the same host use the same cookie names, every response from one app
+    # overwrites the other app's cookies — which means the tracker's own
+    # session cookie clobbers CWN's signed session cookie on every request,
+    # breaking the auto-auth flow.
+    #
+    # Naming them explicitly here keeps the two apps' cookie jars disjoint.
+    SESSION_COOKIE_NAME: str = "tracker_session"
+    REMEMBER_COOKIE_NAME: str = "tracker_remember"
+
     @property
     def SQLALCHEMY_DATABASE_URI(self) -> str:  # noqa: N802 — Flask convention
         return f"sqlite:///{self.TRACKER_DB_PATH}"
