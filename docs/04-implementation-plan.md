@@ -174,6 +174,8 @@ graph TD
 > - There is no `MyLoginManager` class. CWN uses stock `flask_login.LoginManager` plus a vendored `cw_login/` package; the `@login_manager.user_loader` is `cps.usermanagement.load_user(user_id, random, session_key)`. The bridge matches all three fields (`_user_id`, `_random`, `_id`) — not just `_user_id` + `_id`.
 > - CWN's own `load_user` does **not** check `user_session.expiry`. The tracker is intentionally a touch stricter: rows with non-zero expiry in the past are rejected.
 > - The cookie payload uses Flask's `SecureCookieSessionInterface` shape: `URLSafeTimedSerializer` with salt `cookie-session`, `TaggedJSONSerializer` payload, HMAC-SHA1 key derivation. The plan's simplified `decode_cwa_session` example was insufficient — the bridge uses the full shape so signatures verify.
+>
+> **Hotfix (post-Phase 6 local QA):** the tracker and CWN both default to cookie names `session` and `remember_token`. On a shared host that puts them in a permanent overwrite loop — every tracker response clobbers CWN's signed cookie in the browser. The fix is `SESSION_COOKIE_NAME = "tracker_session"` and `REMEMBER_COOKIE_NAME = "tracker_remember"` in `app/config.py`, locked in by `tests/test_cookie_isolation.py`. Documented in `docs/03-auth-and-theming.md` under "Scenario A".
 
 ## Phase 3 — Tracker DB & Models
 
