@@ -65,8 +65,15 @@ def app(tmp_path: Path, cwa_db_path: Path) -> Flask:
 
 @pytest.fixture()
 def app_context(app: Flask):
-    """Push an app context so code that calls ``current_app`` works."""
-    with app.app_context():
+    """Push an app + test request context.
+
+    A request context is included so template helpers like ``url_for``
+    work inside :func:`render_template` calls. The context is short-lived
+    (scoped to the fixture) and isn't shared with any ``test_client``
+    request you make inside the test — each ``client.get(...)`` still
+    pushes its own request context on top.
+    """
+    with app.test_request_context():
         yield app
 
 
@@ -74,3 +81,18 @@ def app_context(app: Flask):
 def client(app: Flask):
     """A Flask test client."""
     return app.test_client()
+
+
+@pytest.fixture(autouse=True)
+def _push_request_context():
+    """Override pytest-flask's autouse ``_push_request_context``.
+
+    pytest-flask pushes a single ``app.test_request_context()`` for the
+    whole test whenever ``app`` is in scope. That outer context is
+    shared by every ``client.open(...)`` call, which leaks Flask-Login's
+    cached ``g._login_user`` across separate test clients (e.g. switching
+    from Alice to Bob mid-test would otherwise see Bob render with
+    Alice's identity). Tests that need a request or app context push
+    their own explicitly via ``app_context`` or ``with app.app_context()``.
+    """
+    yield

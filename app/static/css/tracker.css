@@ -174,3 +174,139 @@
   letter-spacing: 0.05em;
   opacity: 0.7;
 }
+
+/* ── Dashboard ───────────────────────────────────────────────────────────── */
+.tracker-stats-strip > div {
+  text-align: center;
+  padding: 0.5rem 0;
+}
+.tracker-stat-value {
+  font-size: 1.8rem;
+  font-weight: 600;
+  color: var(--tracker-accent);
+  line-height: 1.1;
+}
+.tracker-stat-value small {
+  font-size: 0.9rem;
+  opacity: 0.7;
+  font-weight: 400;
+}
+
+.tracker-search-form {
+  margin: 0 0 2rem;
+  display: flex;
+  gap: 0.5rem;
+}
+.tracker-search-form .form-group {
+  flex: 1 1 auto;
+}
+.tracker-search-form .form-control {
+  width: 100%;
+}
+
+.tracker-section-count {
+  margin-left: 0.5em;
+  opacity: 0.5;
+  font-size: 0.9rem;
+}
+.tracker-empty {
+  opacity: 0.5;
+  font-style: italic;
+  margin: 0;
+}
+
+.tracker-book-grid {
+  display: flex;
+  flex-wrap: wrap;
+  row-gap: 1rem;
+}
+
+.book-card-tombstone .book-cover {
+  border: 1px dashed rgba(255, 255, 255, 0.15);
+}
+
+/* ── Book detail ─────────────────────────────────────────────────────────── */
+.book-detail-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 2rem;
+}
+@media (min-width: 768px) {
+  .book-detail-grid {
+    grid-template-columns: 280px minmax(0, 1fr);
+  }
+}
+.book-detail-cover {
+  background: #1a1a26;
+  border-radius: 4px;
+  overflow: hidden;
+  aspect-ratio: 2 / 3;
+}
+.book-detail-cover img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.book-detail-cover .cover-fallback {
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  font-size: 0.85rem;
+  opacity: 0.6;
+  padding: 1rem;
+}
+
+.book-detail-meta h1 {
+  margin-top: 0;
+  font-size: 1.7rem;
+}
+.book-detail-meta .book-detail-author {
+  font-size: 1rem;
+  opacity: 0.8;
+  margin-bottom: 1rem;
+}
+.book-detail-meta dl {
+  margin: 0 0 1.5rem;
+}
+.book-detail-meta dt {
+  opacity: 0.6;
+  font-weight: normal;
+  width: 7rem;
+  float: left;
+  clear: left;
+}
+.book-detail-meta dd {
+  margin-left: 7rem;
+}
+
+.book-detail-tags .label {
+  margin-right: 0.25rem;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.log-form {
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 6px;
+  padding: 1rem 1.25rem;
+}
+.log-form .form-group { margin-bottom: 0.85rem; }
+.log-form .form-actions {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  margin-top: 0.5rem;
+}
+.log-form .delete-btn { margin-left: auto; }
+
+.reread-list {
+  margin-top: 1.5rem;
+}
+.reread-list li {
+  list-style: none;
+  padding: 0.4rem 0;
+  border-top: 1px solid rgba(255, 255, 255, 0.05);
+}
