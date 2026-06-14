@@ -1,11 +1,13 @@
 ---
 created: 2026-06-12
-modified: 2026-06-13
+modified: 2026-06-14
 ---
 # Calibre Reading Tracker — Auth Bridge & Theming
 
 ```table-of-contents
 ```
+
+> **Status (2026-06-14):** the auth bridge and theming choices described below are implemented and merged (Phases 2 and 5). The "Findings from inspecting CWN source" inline comments are accurate against the live `ghcr.io/new-usemame/calibre-web-nextgen` image; small drifts from the original assumptions are flagged in the **Important** call-outs below.
 
 ## Auth Strategy: Riding CWA's Session
 
@@ -40,7 +42,9 @@ Cookies don't cross subdomains by default. Options:
 
 CWA (and NextGen) uses **Flask-Login** with **Flask-WTF** for CSRF. The session is stored via **Flask's signed cookie** (itsdangerous). The cookie contains a user ID that Flask-Login uses to look up the user.
 
-**Important — two-layer session validation:** NextGen's `MyLoginManager` implements *enhanced* session protection. It validates the Flask signed cookie **and** cross-checks against a `user_session` table in `app.db` to confirm the session hasn't been explicitly invalidated server-side (e.g. by a remote logout or an admin force-logout). Your bridge needs to handle both layers.
+**Important — two-layer session validation:** NextGen uses a stock `flask_login.LoginManager` (from a vendored `cw_login/` package), and its `@user_loader`-decorated `cps.usermanagement.load_user(user_id, random, session_key)` cross-checks against a `user_session` table in `app.db`. The signed cookie alone isn't enough — a row in `user_session` matching `(user_id, session_key, random)` must also exist, so a remote logout (which deletes that row) immediately invalidates outstanding cookies. The bridge mirrors all three fields.
+
+> **Earlier drafts of this doc referenced a `MyLoginManager` class — it doesn't exist in the current CWN source.** The relevant code lives in `cps/usermanagement.py` and the vendored `cps/cw_login/` package.
 
 **Important — `COOKIE_PREFIX`:** The session cookie name is configurable. If NextGen's `COOKIE_PREFIX` environment variable is set, the cookie name becomes `{prefix}session` rather than plain `session`. Check the value in your running container before hardcoding the cookie name in `cwa_bridge.py`.
 
@@ -68,6 +72,8 @@ flowchart TD
 
 ## The CWA Bridge — `app/auth/cwa_bridge.py`
 
+This is an *outline* of the bridge's contract. The current implementation lives in `app/auth/cwa_bridge.py` and is the source of truth — the snippet below is intentionally simplified to keep this doc skimmable. Important departures from the snippet are noted under it.
+
 ```python
 """
 cwa_bridge.py
@@ -75,25 +81,36 @@ cwa_bridge.py
 Read-only interface to CWN's app.db for session validation and user lookup.
 Never writes to CWN's database.
 
-Findings from inspecting Calibre-Web-NextGen source:
-- Session cookie name: f"{COOKIE_PREFIX}session" (env var, default empty → "session")
-- Flask-Login user ID key in session: "_user_id"
-- User table: `user` with columns id, name, email, role, password, ...
-- Session table: `user_session` with columns id, user_id, session_key, random, expiry
-  NextGen's MyLoginManager validates BOTH the signed cookie AND a live row in
-  user_session, so we must check both to match NextGen's own auth behaviour.
+Findings from inspecting Calibre-Web-NextGen source (2026-06-14):
+- Session cookie name:  f"{COOKIE_PREFIX}session" (env var, default "" → "session")
+- Cookie format:        Flask SecureCookieSessionInterface — URLSafeTimedSerializer
+                        with salt="cookie-session", TaggedJSONSerializer payload,
+                        and HMAC-SHA1 key derivation. Decoding with any other
+                        shape will fail signature verification.
+- Session payload keys: "_user_id", "_random", "_id" (= the user_session.session_key)
+- User table:           `user` with columns id, name, email, role, password, ...
+- Session table:        `user_session` with columns id, user_id, session_key,
+                        random, expiry  (expiry is Unix timestamp; 0 = no expiry).
+- Auth model:           stock flask_login.LoginManager + vendored cw_login/. The
+                        @user_loader (cps.usermanagement.load_user) cross-checks
+                        user_session on (user_id, session_key, random) and IGNORES
+                        expiry. The tracker is intentionally stricter and rejects
+                        rows whose non-zero expiry is in the past.
 """
 
+import hashlib
 import sqlite3
 import time
 from contextlib import contextmanager
+
 from flask import current_app
+from flask.json.tag import TaggedJSONSerializer
 from itsdangerous import URLSafeTimedSerializer, BadSignature, SignatureExpired
 
 
 @contextmanager
 def cwa_db_connection():
-    """Context manager for read-only CWN database access."""
+    """Read-only connection to CWN's app.db."""
     db_path = current_app.config["CWA_DB_PATH"]
     conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
     conn.row_factory = sqlite3.Row
@@ -103,87 +120,67 @@ def cwa_db_connection():
         conn.close()
 
 
+def _signing_serializer(secret_key: str) -> URLSafeTimedSerializer:
+    """Match Flask's SecureCookieSessionInterface exactly — salt, payload
+    serializer, and HMAC-SHA1 key derivation. Use the same shape or the
+    HMAC will not verify."""
+    return URLSafeTimedSerializer(
+        secret_key,
+        salt="cookie-session",
+        serializer=TaggedJSONSerializer(),
+        signer_kwargs={"key_derivation": "hmac", "digest_method": hashlib.sha1},
+    )
+
+
 def decode_cwa_session(session_cookie: str) -> dict | None:
-    """
-    Decode a CWN Flask session cookie using the shared SECRET_KEY.
-    Returns the session dict, or None if invalid/expired.
-    """
-    secret_key = current_app.config["CWA_SECRET_KEY"]
-    s = URLSafeTimedSerializer(secret_key, salt="cookie-session")
+    """Decode a CWN-signed Flask session cookie, or None if invalid/expired."""
+    secret_key = current_app.config.get("CWA_SECRET_KEY") or ""
+    if not secret_key:
+        return None
     try:
-        data = s.loads(session_cookie, max_age=86400 * 30)  # 30-day sessions
-        return data
+        data = _signing_serializer(secret_key).loads(session_cookie, max_age=86400 * 30)
     except (BadSignature, SignatureExpired):
         return None
+    return data if isinstance(data, dict) else None
 
 
-def get_cwa_user_by_id(cwa_user_id: int) -> dict | None:
-    """
-    Fetch a user record from CWN's database by ID.
-    Returns a dict with user fields, or None if not found.
+def check_cwa_user_session(cwa_user_id, session_key, random_token, *, now=None):
+    """Confirm an active user_session row exists for these credentials.
 
-    CWN user table schema (from source):
-        id, name, email, role, password, kindle_mail,
-        locale, default_language, sidebar_view,
-        denied_tags, allowed_tags, denied_column_value,
-        allowed_column_value, email_verified
-    """
-    with cwa_db_connection() as conn:
-        row = conn.execute(
-            "SELECT id, name, email, role FROM user WHERE id = ?",
-            (cwa_user_id,)
-        ).fetchone()
-
-        if row is None:
-            return None
-
-        return dict(row)
-
-
-def check_cwa_user_session(cwa_user_id: int, session_key: str) -> bool:
-    """
-    Verify that an active user_session row exists in CWN's app.db for this
-    user + session key pair. NextGen's MyLoginManager checks this table in
-    addition to the signed cookie, so we match that behaviour.
-
-    user_session schema: id, user_id, session_key, random, expiry
-    expiry is a Unix timestamp; 0 means no expiry (remember_me).
-    """
-    now = int(time.time())
+    Filters on (user_id, session_key, random) — matching CWN's own load_user —
+    and additionally rejects rows whose non-zero expiry is in the past."""
+    if not session_key:
+        return False
+    now = int(time.time()) if now is None else now
     with cwa_db_connection() as conn:
         row = conn.execute(
             """SELECT id FROM user_session
-               WHERE user_id = ?
-               AND session_key = ?
-               AND (expiry = 0 OR expiry > ?)""",
-            (cwa_user_id, session_key, now)
+               WHERE user_id = ? AND session_key = ? AND random = ?
+                 AND (expiry = 0 OR expiry > ?)""",
+            (cwa_user_id, session_key, random_token, now),
         ).fetchone()
     return row is not None
 
 
 def validate_cwa_session(session_cookie: str) -> dict | None:
-    """
-    Full pipeline: decode cookie → validate → check user_session table → fetch user.
-    Returns CWN user dict if valid, None otherwise.
-    """
+    """decode → user_session cross-check → fetch user dict."""
     session_data = decode_cwa_session(session_cookie)
     if not session_data:
         return None
-
-    user_id = session_data.get("_user_id") or session_data.get("user_id")
-    if not user_id:
+    try:
+        user_id = int(session_data.get("_user_id") or session_data.get("user_id"))
+    except (TypeError, ValueError):
         return None
-
-    # NextGen also validates against the user_session table.
-    # The session_key stored there corresponds to the Flask session's "_id" field.
-    session_key = session_data.get("_id")
-    if session_key and not check_cwa_user_session(int(user_id), session_key):
-        return None  # Session was explicitly invalidated server-side
-
-    return get_cwa_user_by_id(int(user_id))
+    if not check_cwa_user_session(user_id, session_data.get("_id"), session_data.get("_random")):
+        return None
+    return get_cwa_user_by_id(user_id)
 ```
 
- **Note on `COOKIE_PREFIX`:** If NextGen is configured with a non-empty `COOKIE_PREFIX` env var, the cookie name passed to `validate_cwa_session()` must be read from `request.cookies.get(f"{prefix}session")` rather than `request.cookies.get("session")`. Add `CWA_COOKIE_PREFIX` to your tracker's env vars and make this configurable. Check the value in your running NextGen container with `docker exec calibre-web printenv COOKIE_PREFIX`.
+**Why the cookie-serializer shape matters.** Flask's `SecureCookieSessionInterface` doesn't just use a plain `URLSafeTimedSerializer(secret_key, salt="cookie-session")` — it also pins the payload serializer (`TaggedJSONSerializer`) and the signing key derivation (`hmac` + `sha1`). Encoding/decoding with any other combination produces a different signature and the HMAC verification fails. This bridge was originally written with the simplified form and had to be widened when round-tripping against the real container's cookies failed.
+
+**Why the `random` field matters.** Stock Flask-Login (and the vendored `cw_login/` CWN ships) writes three keys into the session: `_user_id`, `_id` (= the `user_session.session_key`), and `_random`. CWN's `load_user` filters `user_session` on `(user_id, session_key, random)` — using only `_id` is sufficient most of the time but will let through cookies where `_random` doesn't match the live row (rare but real after a remember-me re-bind). Matching all three avoids the edge case.
+
+**`COOKIE_PREFIX`.** If NextGen is configured with a non-empty `COOKIE_PREFIX` env var, the cookie name passed to `validate_cwa_session()` must be read from `request.cookies.get(f"{prefix}session")` rather than `request.cookies.get("session")`. The tracker reads this from the `CWA_COOKIE_PREFIX` env var (default `""`). Check the live value with `docker exec calibre-web printenv COOKIE_PREFIX`.
 
 ## CWN Read-Status Import — `app/auth/cwa_bridge.py` (continued)
 
@@ -364,6 +361,8 @@ def authenticate_cwa_credentials(username: str, password: str) -> dict | None:
 
 ## Theming: Extending caliBlur! Dark
 
+> **What Phase 5 ended up doing (vs. earlier drafts of this section).** The original plan was to copy CWN's full `layout.html` into the tracker and extend it. In practice the live `layout.html` is ~777 lines and tightly coupled to CWN-specific globals (`g.current_theme`, `current_user.role_admin()`, i18n filters, custom-CSS hooks, …) which would need stubbing from the tracker side. The trade-off taken: vendor CWN's *CSS files* verbatim (the visual surface), and build a small **tracker-native `layout.html`** that mimics CWN's caliBlur shell — same fonts, colors, `body.blur` class, Bootstrap 3 navbar, and the override blocks (`head_extras`, `navbar_primary`, `navbar_extra`, `flash`, `body`, `js`) that this doc's `base.html` snippet expects. The CSS file references in the page output are unchanged, so the actual caliBlur dark theme styles every page.
+
 ### How CWN's Theme Works
 
 CWN serves its static assets (CSS, JS, fonts) from its own container. The caliBlur! theme is a set of CSS files loaded conditionally based on the user's theme setting. The confirmed CSS structure from source is:
@@ -375,12 +374,34 @@ CWN serves its static assets (CSS, JS, fonts) from its own container. The caliBl
 | `cps/static/css/cwa.css` | CWN-specific enhancements (loaded for both themes) |
 | `cps/static/css/style.css` | Base application styles |
 
-Your tracker needs to either:
+Three strategies are viable:
 
-1. **Proxy CWA's static assets** (cleanest, no duplication), or
-2. **Copy the theme files** into your own container's static directory
+1. **Vendor the CSS files into the tracker repo** *(what Phase 5 picked)*. Copy the four files above into `app/static/css/cwa/` and reference them from the tracker's own `layout.html`. Self-contained; the tracker can be deployed alongside any CWN install. When CWN releases a new caliBlur, run `docker cp` to refresh.
+2. **Proxy CWA's static assets via the reverse proxy** (less duplication; CWN updates flow automatically).
+3. **Copy/mount the theme files at runtime via a Docker volume**.
 
-**Option 1 — Proxy via Nginx (Recommended):**
+**What Phase 5 picked — vendored copies in the repo (recommended for now):**
+
+The four CWN CSS files live at `app/static/css/cwa/` in the tracker repo. `app/templates/layout.html` loads them in this order:
+
+```html
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@3.4.1/dist/css/bootstrap.min.css">
+<link rel="stylesheet" href="{{ url_for('static', filename='css/cwa/style.css') }}">
+<link rel="stylesheet" href="{{ url_for('static', filename='css/cwa/caliBlur.css') }}">
+<link rel="stylesheet" href="{{ url_for('static', filename='css/cwa/caliBlur_override.css') }}">
+<link rel="stylesheet" href="{{ url_for('static', filename='css/cwa/cwa.css') }}">
+```
+
+Bootstrap 3 and jQuery come from a CDN to keep the repo lean. To refresh the vendored CSS after a CWN update:
+
+```bash
+docker cp calibre-web:/app/calibre-web-automated/cps/static/css/caliBlur.css           app/static/css/cwa/caliBlur.css
+docker cp calibre-web:/app/calibre-web-automated/cps/static/css/caliBlur_override.css  app/static/css/cwa/caliBlur_override.css
+docker cp calibre-web:/app/calibre-web-automated/cps/static/css/cwa.css                app/static/css/cwa/cwa.css
+docker cp calibre-web:/app/calibre-web-automated/cps/static/css/style.css              app/static/css/cwa/style.css
+```
+
+**Alternative — proxy via the reverse proxy:**
 
 ```nginx
 # In your Nginx Proxy Manager / Traefik config:
@@ -394,18 +415,16 @@ location /tracker/ {
 }
 ```
 
-With this setup, your tracker templates reference `/static/caliBlur/...` and Nginx serves them from CWN. When CWN updates its theme, both apps update automatically.
+With this setup, the tracker would reference `/static/caliBlur/...` instead of `/static/css/cwa/...`. CWN updates flow automatically.
 
-**Option 2 — Copy Theme Files:**
-
-Mount CWN's static directory as a read-only volume into the tracker container:
+**Alternative — bind-mount the CWN static dir read-only:**
 
 ```yaml
 volumes:
   - /mnt/user/appdata/calibre-web-nextgen/app/cps/static:/cwa-static:ro
 ```
 
-Then in your tracker's templates, reference files at `/cwa-static/...`.
+Then reference `/cwa-static/...` from templates. Similar trade-off to the proxy, with the file paths visible from inside the container.
 
 ### Your Tracker's CSS — `app/static/css/tracker.css`
 
@@ -520,7 +539,7 @@ Only define what's *new* or *different*. Never override base caliBlur! variables
 {% endblock %}
 ```
 
-> **Note on template inheritance:** The base template is confirmed as `layout.html` (verified from CWN source at `cps/templates/layout.html`). Your `{% extends "layout.html" %}` is correct. Since the tracker is a *separate* container, you'll need to either copy CWN's base template into your container or use the proxy approach above so Jinja2 can find it. The **cleanest approach** is to copy just the base template and the theme CSS into your container — it's a small surface area and rarely changes.
+> **Note on template inheritance.** Phase 5 chose to not literally extend CWN's `layout.html` from inside the tracker — the live template has too many CWN-specific globals to satisfy from outside CWN (see the call-out at the top of this section). Instead, `app/templates/layout.html` is a tracker-native shell with the same visual treatment (Bootstrap 3 navbar, vendored caliBlur CSS, `body.blur`) and defines the `head_extras` / `navbar_primary` / `navbar_extra` / `flash` / `body` / `js` blocks that `base.html` overrides. `base.html` *does* `{% extends "layout.html" %}` — but `layout.html` here is the tracker's own, not CWN's.
 
 ## Navigation Integration Diagram
 

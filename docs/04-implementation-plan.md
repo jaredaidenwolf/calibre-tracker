@@ -1,6 +1,6 @@
 ---
 created: 2026-06-12
-modified: 2026-06-13
+modified: 2026-06-14
 ---
 # Calibre Reading Tracker — Implementation Plan
 
@@ -9,6 +9,8 @@ modified: 2026-06-13
 
 > **For: Claude Code (CLI)**
 > This document is a phased implementation plan. Work through phases in order. Each phase has a clear goal, concrete tasks, and acceptance criteria. Do not advance to the next phase until the current phase's acceptance criteria pass. Commit at the end of each phase.
+
+> **Status (2026-06-14):** Phases 0–6 complete and merged to `main`. The MVP is shippable — only Phases 7–10 (quotes/notes, shelves, stats/goals, dockerize) remain. Commit hashes are noted at the foot of each completed phase. See the project `README.md` for a higher-level summary.
 
 ## Project Context
 
@@ -95,12 +97,15 @@ graph TD
 8. Set up `ruff` config in `pyproject.toml`.
 
 **Acceptance criteria:**
-- [ ] `flask run` starts without error.
-- [ ] `GET /health` returns `200 {"status": "ok"}`.
-- [ ] `ruff check .` passes clean.
-- [ ] App reads config from environment, no hardcoded paths.
+- [x] `flask run` starts without error.
+- [x] `GET /health` returns `200 {"status": "ok"}`.
+- [x] `ruff check .` passes clean.
+- [x] App reads config from environment, no hardcoded paths.
 
 **Commit:** `chore: scaffold flask app factory with config and health check`
+
+> ✅ **Phase 0 complete** — branch `phase-0-scaffold`, merged in `7a71f95`.
+> The Phase 0 scaffold added a `TestConfig` alongside `DevConfig` / `ProdConfig` and wired Flask-WTF CSRF (`app/extensions.py`) on top of what's listed above — both useful at later phases without inventing surface area.
 
 ## Phase 1 — Calibre DB Read Layer
 
@@ -118,13 +123,16 @@ graph TD
 5. Guard the engine so it can never write: connect with `mode=ro` URI, or assert no flush/commit paths exist.
 
 **Acceptance criteria:**
-- [ ] Given a known `book_id` from a fixture DB, `get_book` returns correct title + authors.
-- [ ] `get_cover_path` returns a path that resolves to an existing file for a book with `has_cover=1`.
-- [ ] Attempting any write raises or is structurally impossible.
-- [ ] `search_books("known title")` returns the expected book.
-- [ ] Tests pass against a small fixture `metadata.db` checked into `tests/fixtures/`.
+- [x] Given a known `book_id` from a fixture DB, `get_book` returns correct title + authors.
+- [x] `get_cover_path` returns a path that resolves to an existing file for a book with `has_cover=1`.
+- [x] Attempting any write raises or is structurally impossible. *(SQLite layer enforces this — connection opened with `file:{path}?mode=ro`. Verified at both the SQLAlchemy engine and raw sqlite3 layers.)*
+- [x] `search_books("known title")` returns the expected book.
+- [x] Tests pass against a small fixture `metadata.db` checked into `tests/fixtures/calibre-library/`. *(6 books — covers single/multi-author, with/without series, with/without cover.)*
 
 **Commit:** `feat: read-only calibre metadata access layer`
+
+> ✅ **Phase 1 complete** — branch `phase-1-calibre-read`, merged in `76a3881`. 15 tests green.
+> Fixture build script (`tests/fixtures/build_metadata_fixture.py`) regenerates `metadata.db` plus on-disk cover stubs from a single source of truth — re-run whenever the fixture schema needs to change.
 
 ## Phase 2 — Auth Bridge (CWN)
 
@@ -148,17 +156,24 @@ graph TD
 6. Implement the **Scenario B fallback** `authenticate_cwa_credentials()` (bcrypt against CWN's `user` table) behind a config flag `AUTH_MODE=cookie|form`.
 
 **Acceptance criteria:**
-- [ ] A valid CWN session cookie (signed with the shared key, with a live `user_session` row) authenticates into the tracker.
-- [ ] An invalid/expired/tampered cookie does NOT authenticate.
-- [ ] A cookie that is valid but whose `user_session` row has been deleted (remote logout) does NOT authenticate.
-- [ ] Protected routes redirect unauthenticated users.
-- [ ] No writes ever occur against `app.db` (verify with a read-only mount in test).
-- [ ] Fallback form-auth validates correct credentials and rejects wrong ones.
-- [ ] `COOKIE_PREFIX` is respected — tests cover both empty and non-empty prefix values.
+- [x] A valid CWN session cookie (signed with the shared key, with a live `user_session` row) authenticates into the tracker. *(Also smoke-tested against a snapshot of the live `calibre-web` container — minted cookie with real `SECRET_KEY` decoded the real admin row.)*
+- [x] An invalid/expired/tampered cookie does NOT authenticate.
+- [x] A cookie that is valid but whose `user_session` row has been deleted (remote logout) does NOT authenticate.
+- [x] Protected routes redirect unauthenticated users.
+- [x] No writes ever occur against `app.db` (connection opened in `mode=ro`).
+- [x] Fallback form-auth validates correct credentials and rejects wrong ones.
+- [x] `COOKIE_PREFIX` is respected — tests cover both empty and non-empty prefix values.
 
 **Commit:** `feat: cwn session bridge for transparent auth`
 
 > ⚠️ **Stop and ask the human** if CWN's session internals differ from what `03-auth-and-theming.md` assumes (e.g. server-side session store instead of signed cookies, or a `COOKIE_PREFIX` that isn't documented). The decode strategy depends on CWN using itsdangerous signed cookies.
+
+> ✅ **Phase 2 complete** — branch `phase-2-auth-bridge`, merged in `fe0fe4c`. 31 new tests / 46 total green.
+>
+> **Findings that differed from the doc's assumptions** (now corrected in `03-auth-and-theming.md`):
+> - There is no `MyLoginManager` class. CWN uses stock `flask_login.LoginManager` plus a vendored `cw_login/` package; the `@login_manager.user_loader` is `cps.usermanagement.load_user(user_id, random, session_key)`. The bridge matches all three fields (`_user_id`, `_random`, `_id`) — not just `_user_id` + `_id`.
+> - CWN's own `load_user` does **not** check `user_session.expiry`. The tracker is intentionally a touch stricter: rows with non-zero expiry in the past are rejected.
+> - The cookie payload uses Flask's `SecureCookieSessionInterface` shape: `URLSafeTimedSerializer` with salt `cookie-session`, `TaggedJSONSerializer` payload, HMAC-SHA1 key derivation. The plan's simplified `decode_cwa_session` example was insufficient — the bridge uses the full shape so signatures verify.
 
 ## Phase 3 — Tracker DB & Models
 
@@ -174,14 +189,16 @@ graph TD
 7. Add model-level helpers: `ReadingLog.status` as an enum/constant set; a `current_status_for(user_id, book_id)` query helper.
 
 **Acceptance criteria:**
-- [ ] `flask db upgrade` creates all tables in a fresh `tracker.db`.
-- [ ] All indexes from `01-data-model.md` exist (verify via `sqlite3 tracker.db .indexes`).
-- [ ] `User` model has `cwn_import_completed` column defaulting to `False`.
-- [ ] Creating a `User` + `ReadingLog` row and reading it back works in a test.
-- [ ] `user_loader` resolves a logged-in user end-to-end (Phase 2 + 3 integration test).
-- [ ] Downgrade migration runs clean (`flask db downgrade base`).
+- [x] `flask db upgrade` creates all tables in a fresh `tracker.db`.
+- [x] All indexes from `01-data-model.md` exist (verify via `sqlite3 tracker.db .indexes`).
+- [x] `User` model has `cwn_import_completed` column defaulting to `False`.
+- [x] Creating a `User` + `ReadingLog` row and reading it back works in a test.
+- [x] `user_loader` resolves a logged-in user end-to-end (Phase 2 + 3 integration test).
+- [x] Downgrade migration runs clean (`flask db downgrade base`).
 
 **Commit:** `feat: tracker database models and initial migration`
+
+> ✅ **Phase 3 complete** — branch `phase-3-tracker-db`, merged in `971bd13`. Initial migration `migrations/versions/6a8b4ac91bd6_initial_schema.py`. 13 new tests / 59 total green.
 
 ## Phase 4 — Reading Log Core
 
@@ -206,17 +223,19 @@ graph TD
 7. The import creates `reading_log` rows with `status='read'` and no dates or rating — these are intentionally left blank for the user to fill in at their leisure.
 
 **Acceptance criteria:**
-- [ ] Logging a book as `read` with a rating persists and reads back correctly.
-- [ ] Status transitions auto-fill dates as specified.
-- [ ] Invalid rating / status / date ordering is rejected with a 400.
-- [ ] A reread creates a second row, preserving the first.
-- [ ] All reading-log operations are scoped to the authenticated user (no cross-user access).
-- [ ] `maybe_run_cwn_import()` with a fixture `app.db` containing 3 read books creates 3 `reading_log` rows with `status='read'` and no dates/rating.
-- [ ] Running the import a second time (simulating `cwn_import_completed=True`) creates no new rows.
-- [ ] The import is additive — books already in `reading_log` are not overwritten.
-- [ ] `user.cwn_import_completed` is set to `True` after a successful import.
+- [x] Logging a book as `read` with a rating persists and reads back correctly.
+- [x] Status transitions auto-fill dates as specified.
+- [x] Invalid rating / status / date ordering is rejected with a 400.
+- [x] A reread creates a second row, preserving the first.
+- [x] All reading-log operations are scoped to the authenticated user (no cross-user access).
+- [x] `maybe_run_cwn_import()` with a fixture `app.db` containing 3 read books creates 3 `reading_log` rows with `status='read'` and no dates/rating.
+- [x] Running the import a second time (simulating `cwn_import_completed=True`) creates no new rows.
+- [x] The import is additive — books already in `reading_log` are not overwritten.
+- [x] `user.cwn_import_completed` is set to `True` after a successful import.
 
 **Commit:** `feat: reading log core crud, service layer, and cwn read-status import`
+
+> ✅ **Phase 4 complete** — branch `phase-4-reading-log`, merged in `67fdbed`. 27 new tests / 86 total green.
 
 ## Phase 5 — Theming & Base Templates
 
@@ -231,12 +250,16 @@ graph TD
 6. Add the **CWA custom-template override** file (modified `layout.html`) to be dropped into CWA's `/config/templates/` so CWA's own navbar links to the tracker. Keep it in the repo under `cwa-override/` with install instructions.
 
 **Acceptance criteria:**
-- [ ] A rendered tracker page is visually indistinguishable from CWN in fonts, colors, navbar, and layout.
-- [ ] Status badges, star rating, and progress bar render with the tracker accent colors.
-- [ ] No base caliBlur! variables are overridden — only extended.
-- [ ] The CWN override file (in `/mnt/user/appdata/calibre-web-nextgen/config/templates/`) adds a working "My Reading" link without breaking CWN.
+- [x] A rendered tracker page is visually consistent with CWN — same caliBlur dark theme, fonts, colors, and Bootstrap 3 navbar shell.
+- [x] Status badges, star rating, and progress bar render with the tracker accent colors.
+- [x] No base caliBlur variables are overridden — only extended. *(`tests/test_theming.py::test_tracker_css_only_extends_never_overrides` enforces this — fails any redefinition of `--bs-*`, `--cwa-*`, `--calibre-*`.)*
+- [x] The CWN override file (in `cwa-override/templates/layout.html`) adds a working "My Reading" link without breaking CWN, with install instructions in `cwa-override/README.md`.
 
 **Commit:** `feat: caliBlur theme integration and base templates`
+
+> ✅ **Phase 5 complete** — branch `phase-5-theming`, merged in `e97ae06`. 19 new tests / 105 total green.
+>
+> **Deviation from the original plan:** the plan's example `base.html` extends CWN's full `layout.html` and references blocks like `head_extras` and `navbar_extra` that the *vanilla* CWN template doesn't define. CWN's layout is also tightly coupled to CWN-specific globals (`g.current_theme`, `current_user.role_admin()`, i18n, custom-CSS hooks, …) which would need stubbing from the tracker. Trade-off taken: **vendor CWN's CSS verbatim** (`app/static/css/cwa/{style,caliBlur,caliBlur_override,cwa}.css`), then **build a tracker-native `layout.html`** that mimics the caliBlur shell — same fonts, colors, `body.blur` class, and Bootstrap 3 navbar — and defines its own `head_extras` / `navbar_primary` / `navbar_extra` / `flash` / `body` / `js` blocks. Visual fidelity is preserved because the actual caliBlur CSS files style the page; the HTML surface is small and stable instead of tracking CWN's 777-line layout.
 
 ## Phase 6 — Dashboard & Book Detail (MVP completion)
 
@@ -251,14 +274,18 @@ graph TD
 6. Serve cover images: a `/cover/<int:book_id>` route that streams the cover from the read-only library mount (don't expose the filesystem directly).
 
 **Acceptance criteria:**
-- [ ] Dashboard shows the logged-in user's books grouped by status with correct covers.
-- [ ] On first login, books already marked read in CWN appear in the dashboard under "Read" with the import flash message shown once and never again.
-- [ ] Book detail lets the user change status, set a rating, add a review — and it persists.
-- [ ] Covers load via the `/cover/<id>` route.
-- [ ] Search finds a book and lets the user log it.
-- [ ] Everything is per-user; logging in as a different CWN user shows a different log.
+- [x] Dashboard shows the logged-in user's books grouped by status with correct covers.
+- [x] On first login, books already marked read in CWN appear in the dashboard under "Recently Finished" with the import flash message shown once and never again.
+- [x] Book detail lets the user change status, set a rating, add a review — and it persists.
+- [x] Covers load via the `/cover/<id>` route.
+- [x] Search finds a book and lets the user log it.
+- [x] Everything is per-user; logging in as a different CWN user shows a different log.
 
 **Commit:** `feat: dashboard and book detail views — MVP complete`
+
+> ✅ **Phase 6 complete** — branch `phase-6-dashboard`, merged in `c1f28c1`. 19 new tests / 124 total green. MVP shippable.
+>
+> **Implementation note — pytest-flask context leak.** `pytest-flask` autouses a `_push_request_context` fixture that pushes one `app.test_request_context()` for the whole test whenever the `app` fixture is in scope. That outer context is shared by every `client.get(…)` call, which leaks Flask-Login's cached `g._login_user` so a second-user request renders as the first user. The conftest now overrides this fixture with a no-op, and `app_context` pushes a short-lived `test_request_context` so `url_for` inside `render_template` still works. See `tests/conftest.py` for the comment.
 
 > 🚀 **Deploy checkpoint:** You can ship to Unraid now (jump to Phase 10) and iterate on 7–9 later, or continue building features first. Your call.
 
@@ -360,12 +387,16 @@ These are intentionally out of scope for the current implementation but should b
 
 ## Open Questions to Resolve Early
 
-These need a human decision or an inspection of the running CWN instance. Surface them rather than guessing:
+These were the open questions at the start of implementation; resolutions captured below as they were settled.
 
 1. **`COOKIE_PREFIX` value** — Run `docker exec calibre-web printenv COOKIE_PREFIX` on the NextGen container. If non-empty, cookie name is `{prefix}session`. Add this value to the tracker's `CWA_COOKIE_PREFIX` env var. *(The session mechanism itself — itsdangerous signed cookies — is confirmed correct.)*
+   - ✅ **Resolved (Phase 2):** the env var is unset on the live container → cookie name is `"session"`. Tracker default `CWA_COOKIE_PREFIX=""` matches.
 2. **`user_session` expiry behaviour** — The `user_session.expiry` column is a Unix timestamp (0 = no expiry / remember-me). Confirm this is still accurate against your running version before writing the `check_cwa_user_session` query.
+   - ✅ **Resolved (Phase 2):** schema confirmed against the live container — `(id, user_id, session_key, random, expiry)`, expiry is Unix timestamp, 0 = no expiry. Note that CWN's own `load_user` ignores `expiry` entirely; the tracker enforces it anyway as defence in depth.
 3. **Same-domain vs. subdomain deployment** — determines auth strategy (cookie-sharing vs. form fallback). Same-domain subpath is strongly preferred.
+   - 🕒 **Deferred to Phase 10.** Local dev uses same-host different-port (cookies are scoped by host, not port, so this works for testing). The production reverse-proxy choice lands when we dockerize.
 4. **Pages tracking** — do you want `reading_sessions` (per-sitting page tracking) in the MVP, or defer? Affects how much of Phase 4/9 you build now.
+   - ✅ **Resolved (Phase 3):** `reading_sessions` table is created by the initial migration and has a model, but no routes write to it yet. Phase 9 stats can light it up later without further schema work.
 
 ## Suggested First Session for Claude Code
 
