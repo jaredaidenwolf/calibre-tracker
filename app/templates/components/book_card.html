@@ -10,7 +10,7 @@
 {% set book   = book   if book   is defined else None %}
 {% set status = status if status is defined else None %}
 {% set rating = rating if rating is defined else None %}
-{% set href   = href   if href   is defined else ('/book/' ~ book.id) %}
+{% set href   = href   if href   is defined else url_for('tracker.book_detail', book_id=book.id) %}
 
 {% if book %}
 <a class="book-card-tracker" href="{{ href }}">
@@ -22,7 +22,7 @@
 
   <div class="book-cover">
     {% if book.has_cover %}
-      <img src="/cover/{{ book.id }}" alt="Cover of {{ book.title }}">
+      <img src="{{ url_for('tracker.cover', book_id=book.id) }}" alt="Cover of {{ book.title }}">
     {% else %}
       <div class="cover-fallback">
         <span>{{ book.title }}</span>

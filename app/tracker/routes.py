@@ -1,24 +1,39 @@
-"""Reading-log routes.
+"""Reading-log routes + Phase 6 dashboard, book detail, search, covers.
 
-Phase 4 ships the JSON CRUD surface — Phase 6 will swap callers to
-server-rendered forms backed by these same endpoints. Every route is
-``login_required`` and scoped to ``current_user``; cross-user access is
-structurally impossible because the lookups are always filtered by
-``user_id``.
+Two API surfaces share this blueprint:
+
+* JSON CRUD for the reading log (Phase 4) — kept ``csrf.exempt`` since the
+  caller doesn't ship a WTForms token.
+* Server-rendered pages (Phase 6) — dashboard, book detail, search, cover
+  proxy. Form submissions carry CSRF tokens.
 """
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import TYPE_CHECKING
 
-from flask import Blueprint, jsonify, request
+from flask import (
+    Blueprint,
+    abort,
+    current_app,
+    flash,
+    jsonify,
+    redirect,
+    render_template,
+    request,
+    send_from_directory,
+    url_for,
+)
 from flask_login import current_user, login_required
 
+from ..calibre.repository import get_book, get_books, search_books
 from ..extensions import csrf
 from .models import ReadingLog
 from .service import (
     ReadingLogValidationError,
     delete_reading_log,
+    maybe_run_cwn_import,
     quick_status_change,
     upsert_reading_log,
 )
@@ -27,6 +42,242 @@ if TYPE_CHECKING:
     from flask import Flask, Response
 
 tracker_bp = Blueprint("tracker", __name__)
+
+
+# ── Dashboard helpers ───────────────────────────────────────────────────────
+
+
+def _logs_by_status(user_id: int) -> dict[str, list[ReadingLog]]:
+    """Group a user's non-reread logs by ``status``.
+
+    Each list is freshest-first (most recently updated).
+    """
+    rows = (
+        ReadingLog.query.filter_by(user_id=user_id, is_reread=False)
+        .order_by(ReadingLog.updated_at.desc())
+        .all()
+    )
+    grouped: dict[str, list[ReadingLog]] = {}
+    for row in rows:
+        grouped.setdefault(row.status, []).append(row)
+    return grouped
+
+
+def _attach_books(logs: list[ReadingLog]) -> list[dict]:
+    """Pair each log row with its Calibre book DTO (or a tombstone)."""
+    if not logs:
+        return []
+    books = {b.id: b for b in get_books([log.calibre_book_id for log in logs])}
+    return [
+        {
+            "log": log,
+            "book": books.get(log.calibre_book_id),
+        }
+        for log in logs
+    ]
+
+
+def _quick_stats(user_id: int) -> dict:
+    """Cheap stats strip for the dashboard — Phase 9 ships the real page."""
+    from datetime import UTC, datetime
+
+    from sqlalchemy import func as sa_func
+
+    from ..extensions import db
+
+    now = datetime.now(UTC)
+    finished_this_year = (
+        db.session.query(sa_func.count(ReadingLog.id))
+        .filter(
+            ReadingLog.user_id == user_id,
+            ReadingLog.status == "read",
+            ReadingLog.finished_at.isnot(None),
+            sa_func.strftime("%Y", ReadingLog.finished_at) == str(now.year),
+        )
+        .scalar()
+        or 0
+    )
+    total_read = (
+        db.session.query(sa_func.count(ReadingLog.id))
+        .filter(ReadingLog.user_id == user_id, ReadingLog.status == "read")
+        .scalar()
+        or 0
+    )
+    currently_reading = (
+        db.session.query(sa_func.count(ReadingLog.id))
+        .filter(ReadingLog.user_id == user_id, ReadingLog.status == "reading")
+        .scalar()
+        or 0
+    )
+    want_to_read = (
+        db.session.query(sa_func.count(ReadingLog.id))
+        .filter(ReadingLog.user_id == user_id, ReadingLog.status == "want_to_read")
+        .scalar()
+        or 0
+    )
+    avg_rating = (
+        db.session.query(sa_func.avg(ReadingLog.rating))
+        .filter(ReadingLog.user_id == user_id, ReadingLog.rating.isnot(None))
+        .scalar()
+    )
+    return {
+        "finished_this_year": finished_this_year,
+        "total_read": total_read,
+        "currently_reading": currently_reading,
+        "want_to_read": want_to_read,
+        "avg_rating": float(avg_rating) if avg_rating else None,
+        "year": now.year,
+    }
+
+
+# ── Dashboard ───────────────────────────────────────────────────────────────
+
+
+@tracker_bp.get("/")
+@login_required
+def dashboard() -> Response:
+    """The user's home page — sections per status + a quick-stats strip."""
+    imported = maybe_run_cwn_import(current_user)
+    if imported:
+        flash(
+            f"We found {imported} books you've already read in Calibre Web — "
+            "they've been added to your reading log. Add dates and ratings whenever you like.",
+            "info",
+        )
+
+    grouped = _logs_by_status(current_user.id)
+    sections = [
+        ("Currently Reading", "reading", _attach_books(grouped.get("reading", []))),
+        ("Want to Read", "want_to_read", _attach_books(grouped.get("want_to_read", []))),
+        ("Recently Finished", "read", _attach_books(grouped.get("read", [])[:12])),
+        ("Did Not Finish", "dnf", _attach_books(grouped.get("dnf", []))),
+    ]
+
+    return render_template(
+        "tracker/dashboard.html",
+        sections=sections,
+        stats=_quick_stats(current_user.id),
+    )
+
+
+# ── Book detail ─────────────────────────────────────────────────────────────
+
+
+@tracker_bp.get("/book/<int:book_id>")
+@login_required
+def book_detail(book_id: int) -> Response:
+    """Cover + metadata + the reading-log form for ``book_id``."""
+    book = get_book(book_id)
+    if book is None:
+        abort(404)
+    log = ReadingLog.query.filter_by(
+        user_id=current_user.id, calibre_book_id=book_id, is_reread=False
+    ).first()
+    rereads = (
+        ReadingLog.query.filter_by(user_id=current_user.id, calibre_book_id=book_id, is_reread=True)
+        .order_by(ReadingLog.reread_count.asc())
+        .all()
+    )
+    return render_template(
+        "tracker/book_detail.html",
+        book=book,
+        log=log,
+        rereads=rereads,
+    )
+
+
+@tracker_bp.post("/book/<int:book_id>")
+@login_required
+def book_detail_submit(book_id: int) -> Response:
+    """Handle the reading-log form on the book-detail page.
+
+    Plain form encoding — CSRF protection comes from Flask-WTF (the
+    ``csrf_token`` hidden input rendered by the template). Bad input
+    flashes the error and re-renders rather than throwing a 400 in
+    the user's face.
+    """
+    book = get_book(book_id)
+    if book is None:
+        abort(404)
+
+    payload = {
+        "status": request.form.get("status") or None,
+        "started_at": request.form.get("started_at") or None,
+        "finished_at": request.form.get("finished_at") or None,
+        "rating": request.form.get("rating") or None,
+        "review": request.form.get("review") or None,
+        "is_reread": bool(request.form.get("is_reread")),
+    }
+    # The "delete" button submits with action=delete; handle before validation
+    # so a delete request never has to satisfy the rating/status rules.
+    if request.form.get("action") == "delete":
+        if delete_reading_log(current_user, book_id):
+            flash("Removed from your reading log.", "success")
+        else:
+            flash("Nothing to remove — book wasn't in your log.", "warning")
+        return redirect(url_for("tracker.book_detail", book_id=book_id))
+
+    try:
+        upsert_reading_log(current_user, book_id, payload)
+    except ReadingLogValidationError as exc:
+        flash(str(exc), "danger")
+        return redirect(url_for("tracker.book_detail", book_id=book_id))
+
+    flash("Reading log updated.", "success")
+    return redirect(url_for("tracker.book_detail", book_id=book_id))
+
+
+# ── Search ──────────────────────────────────────────────────────────────────
+
+
+@tracker_bp.get("/search")
+@login_required
+def search() -> Response:
+    """Find a book in the Calibre library and let the user log it."""
+    query = (request.args.get("q") or "").strip()
+    results = search_books(query, limit=50) if query else []
+    # Pull the current statuses for each hit so the badges render correctly.
+    statuses: dict[int, str] = {}
+    if results:
+        rows = ReadingLog.query.filter(
+            ReadingLog.user_id == current_user.id,
+            ReadingLog.calibre_book_id.in_([b.id for b in results]),
+            ReadingLog.is_reread.is_(False),
+        ).all()
+        statuses = {row.calibre_book_id: row.status for row in rows}
+    return render_template(
+        "tracker/search.html",
+        query=query,
+        results=results,
+        statuses=statuses,
+    )
+
+
+# ── Covers ──────────────────────────────────────────────────────────────────
+
+
+@tracker_bp.get("/cover/<int:book_id>")
+@login_required
+def cover(book_id: int) -> Response:
+    """Stream a Calibre book cover from the read-only library mount.
+
+    The filesystem is never exposed directly — :func:`send_from_directory`
+    enforces that the resolved path stays under ``CALIBRE_LIBRARY_PATH``,
+    so a crafted ``book_id`` can't reach files outside the library.
+    """
+    book = get_book(book_id)
+    if book is None or not book.has_cover:
+        abort(404)
+    library_root = current_app.config.get("CALIBRE_LIBRARY_PATH") or str(
+        Path(current_app.config["CALIBRE_DB_PATH"]).parent
+    )
+    relative = Path(book.path) / "cover.jpg"
+    if not (Path(library_root) / relative).is_file():
+        abort(404)
+    return send_from_directory(library_root, str(relative), mimetype="image/jpeg")
+
+
+# ── Phase 4 JSON CRUD (unchanged) ───────────────────────────────────────────
 
 
 def _serialize_log(log: ReadingLog) -> dict:
@@ -45,7 +296,6 @@ def _serialize_log(log: ReadingLog) -> dict:
 
 
 def _read_payload() -> dict:
-    """Accept either JSON or form-encoded bodies — routes shouldn't care."""
     if request.is_json:
         return request.get_json(silent=True) or {}
     return request.form.to_dict()
@@ -54,7 +304,6 @@ def _read_payload() -> dict:
 @tracker_bp.get("/book/<int:book_id>/log")
 @login_required
 def get_log(book_id: int) -> Response:
-    """Return the current (non-reread) log row plus any reread rows."""
     rows = (
         ReadingLog.query.filter_by(user_id=current_user.id, calibre_book_id=book_id)
         .order_by(ReadingLog.is_reread.asc(), ReadingLog.created_at.asc())
@@ -73,10 +322,9 @@ def get_log(book_id: int) -> Response:
 
 
 @tracker_bp.post("/book/<int:book_id>/log")
-@csrf.exempt  # JSON callers don't supply WTForms tokens; CSRF lands with HTML forms in Phase 6
+@csrf.exempt
 @login_required
 def post_log(book_id: int) -> Response:
-    """Create or update the user's log entry for a book."""
     try:
         log = upsert_reading_log(current_user, book_id, _read_payload())
     except ReadingLogValidationError as exc:
@@ -88,9 +336,7 @@ def post_log(book_id: int) -> Response:
 @csrf.exempt
 @login_required
 def post_status(book_id: int) -> Response:
-    """Quick status-only update."""
-    payload = _read_payload()
-    status = payload.get("status", "")
+    status = _read_payload().get("status", "")
     try:
         log = quick_status_change(current_user, book_id, status)
     except ReadingLogValidationError as exc:
@@ -102,7 +348,6 @@ def post_status(book_id: int) -> Response:
 @csrf.exempt
 @login_required
 def delete_log(book_id: int) -> Response:
-    """Remove the canonical log row (rereads are preserved)."""
     removed = delete_reading_log(current_user, book_id)
     if not removed:
         return jsonify({"error": "no log entry to delete"}), 404
