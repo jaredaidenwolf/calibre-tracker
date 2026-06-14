@@ -36,8 +36,16 @@ def create_app(config: str | Config | None = None) -> Flask:
     csrf.init_app(app)
 
     _register_routes(app)
+    _register_auth(app)
 
     return app
+
+
+def _register_auth(app: Flask) -> None:
+    """Wire the CWN auth bridge — kept in its own function for testability."""
+    from .auth.routes import register_auth
+
+    register_auth(app)
 
 
 def _apply_config(app: Flask, cfg: Config) -> None:
