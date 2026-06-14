@@ -1,0 +1,11 @@
+flask
+flask-login
+flask-sqlalchemy
+flask-migrate
+flask-wtf
+sqlalchemy
+alembic
+gunicorn
+bcrypt
+itsdangerous
+python-dotenv
