@@ -19,6 +19,9 @@ env/
 /instance/
 /config/
 
+# But: keep the test fixture metadata.db in the repo so tests are hermetic
+!tests/fixtures/**/*.db
+
 # Editor / OS
 .DS_Store
 .vscode/
