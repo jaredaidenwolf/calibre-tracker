@@ -206,7 +206,7 @@ Every knob is an environment variable. Full table:
 | `CALIBRE_DB_PATH` | yes | `/calibre-library/metadata.db` | Read-only path to Calibre's `metadata.db`. |
 | `CALIBRE_LIBRARY_PATH` | recommended | parent of `CALIBRE_DB_PATH` | Library root, used to resolve and stream covers via `/cover/<id>`. |
 | `CWA_DB_PATH` | yes | `/cwa/app.db` | Read-only path to CWN's `app.db`. |
-| `TRACKER_DB_PATH` | yes | `/config/tracker.db` | The tracker's own writable SQLite database. |
+| `TRACKER_DB_PATH` | yes | `/config/tracker.db` | The tracker's own writable SQLite database. Resolved to an absolute path at config load — a relative value (e.g. `./instance/tracker.db` for local dev) is anchored at the process CWD, not Flask's `instance_path`. |
 | `CWA_COOKIE_PREFIX` | no | `""` | Mirrors CWN's `COOKIE_PREFIX` env var (cookie name = `f"{prefix}session"`). Confirm with `docker exec calibre-web printenv COOKIE_PREFIX`. |
 | `CWA_BASE_URL` | no | `/` | Where the "Library" nav link and `/auth/logout` redirect to. |
 | `AUTH_MODE` | no | `cookie` | `cookie` (ride CWN's session) or `form` (bcrypt fallback against CWN's `user` table). |
@@ -220,8 +220,12 @@ Every knob is an environment variable. Full table:
 
 ## Calibre-Web NextGen setup
 
-One change is required on the CWN side: add a `SECRET_KEY` to the CWN
-container's environment so both apps can agree on it.
+Two changes are required on the CWN side.
+
+### 1. Set a shared `SECRET_KEY`
+
+Add a `SECRET_KEY` to the CWN container's environment so both apps can agree
+on it.
 
 ```yaml
 # in your calibre-web-nextgen docker-compose.yml
@@ -233,15 +237,46 @@ services:
       - SECRET_KEY=<your-generated-value>   # same value as CWA_SECRET_KEY in the tracker .env
 ```
 
-Then restart CWN once:
+Existing CWN sessions are invalidated by the key change — log in to CWN once
+after the restart and you're good. The tracker now uses the same key to
+verify CWN's signed session cookie.
+
+### 2. Use host-readable bind mounts
+
+The tracker reads CWN's `app.db` (auth) and Calibre's `metadata.db` (library)
+directly from disk via the same host paths CWN mounts into its container.
+That means CWN's `/config` and `/calibre-library` must be bound to **host
+directories** the tracker can also see — not VM-internal paths like a literal
+`- /config:/config` on macOS Docker Desktop.
+
+```yaml
+# in your calibre-web-nextgen docker-compose.yml
+services:
+  calibre-web:
+    volumes:
+      - /mnt/user/appdata/calibre-web-nextgen/config:/config
+      - /mnt/user/media/books:/calibre-library
+      - /mnt/user/appdata/calibre-web-nextgen/ingest:/cwa-book-ingest
+```
+
+(On macOS dev, swap the `/mnt/user/...` prefix for a host path like
+`~/calibre-web/`.) If you're migrating an existing CWN install that used
+root-level or VM-internal bind mounts, copy the data first before recreating
+the container:
+
+```bash
+docker compose stop calibre-web
+docker cp calibre-web:/config/.          /mnt/user/appdata/calibre-web-nextgen/config/
+docker cp calibre-web:/calibre-library/. /mnt/user/media/books/
+# edit docker-compose.yml to the new volume paths
+docker compose up -d calibre-web
+```
+
+Then restart CWN with the new mounts:
 
 ```bash
 docker compose up -d calibre-web
 ```
-
-Existing CWN sessions are invalidated by the key change — log in to CWN once
-after the restart and you're good. The tracker now uses the same key to
-verify CWN's signed session cookie.
 
 You do **not** need to expose `app.db` to the network or run any special
 patches on the CWN side; the tracker reads it through a Docker bind mount

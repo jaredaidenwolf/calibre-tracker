@@ -24,6 +24,7 @@ from sqlalchemy.orm import (
     relationship,
     sessionmaker,
 )
+from sqlalchemy.pool import NullPool
 
 _engine_cache: dict[str, Engine] = {}
 _engine_lock = Lock()
@@ -59,7 +60,12 @@ books_series_link = Table(
 
 
 class CalibreBook(CalibreBase):
-    """A row in Calibre's ``books`` table."""
+    """A row in Calibre's ``books`` table.
+
+    Note: Calibre stores ISBNs in the ``identifiers`` table
+    (``type='isbn'``), not on the books row. Use :attr:`identifiers` and
+    the ``isbn`` derived field on :class:`BookDTO`.
+    """
 
     __tablename__ = "books"
 
@@ -68,7 +74,6 @@ class CalibreBook(CalibreBase):
     sort: Mapped[str | None] = mapped_column(Text)
     pubdate: Mapped[str | None] = mapped_column(Text)
     series_index: Mapped[float | None] = mapped_column(Float)
-    isbn: Mapped[str | None] = mapped_column(Text)
     path: Mapped[str] = mapped_column(Text, nullable=False)
     has_cover: Mapped[int] = mapped_column(Integer, default=0)
 
@@ -79,6 +84,9 @@ class CalibreBook(CalibreBase):
         secondary=books_tags_link, viewonly=True, order_by="CalibreTag.name"
     )
     series: Mapped[list[CalibreSeries]] = relationship(secondary=books_series_link, viewonly=True)
+    identifiers: Mapped[list[CalibreIdentifier]] = relationship(
+        "CalibreIdentifier", viewonly=True
+    )
 
 
 class CalibreAuthor(CalibreBase):
@@ -110,6 +118,17 @@ class CalibreSeries(CalibreBase):
     sort: Mapped[str | None] = mapped_column(Text)
 
 
+class CalibreIdentifier(CalibreBase):
+    """A row in Calibre's ``identifiers`` table (isbn, google, asin, …)."""
+
+    __tablename__ = "identifiers"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    book: Mapped[int] = mapped_column(Integer, ForeignKey("books.id"), nullable=False)
+    type: Mapped[str] = mapped_column(Text, nullable=False)
+    val: Mapped[str] = mapped_column(Text, nullable=False)
+
+
 def _make_engine(db_path: str) -> Engine:
     """Build a SQLAlchemy engine that can never write to ``db_path``.
 
@@ -121,10 +140,18 @@ def _make_engine(db_path: str) -> Engine:
     def _connect() -> sqlite3.Connection:
         return sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
 
+    # NullPool: each checkout opens a fresh sqlite3.Connection in the
+    # caller's thread and closes it on return. SQLAlchemy's default for
+    # ``sqlite://`` URIs is SingletonThreadPool, which Flask's threaded
+    # dev server breaks (a connection opened in thread A gets closed in
+    # thread B during GC, tripping SQLite's ``check_same_thread`` guard).
+    # For a read-only, low-volume sidecar the per-request connect cost
+    # is negligible.
     return create_engine(
         "sqlite://",
         creator=_connect,
         future=True,
+        poolclass=NullPool,
     )
 
 
