@@ -51,6 +51,22 @@ graph TB
     style TDB fill:#1b4332,color:#fff
 ```
 
+## Prerequisite: CWN must use host-readable bind mounts
+
+The tracker reads CWN's `app.db` (auth) and Calibre's `metadata.db` (library) from the same host paths CWN mounts into its container. This only works if CWN's `/config` and `/calibre-library` are bound to **host directories the tracker container can also mount**.
+
+If CWN's compose uses VM-internal bind mounts — e.g. on macOS Docker Desktop, a literal `- /config:/config` resolves inside the Docker VM, not on the host — the tracker has nothing to read on the host side. Migrate CWN's compose to host paths before deploying the tracker:
+
+```yaml
+# CWN docker-compose.yml — host-readable paths
+volumes:
+  - /mnt/user/appdata/calibre-web-nextgen/config:/config
+  - /mnt/user/media/books:/calibre-library
+  - /mnt/user/appdata/calibre-web-nextgen/ingest:/cwa-book-ingest
+```
+
+(For local macOS development, swap `/mnt/user/...` for a host path like `~/calibre-web/config`.) Migrate any existing data with `docker cp <container>:/config/. <host-path>/config/` before recreating the container.
+
 ## Volume Mounts
 
 | Host Path | Container Path | Mode | Purpose |
