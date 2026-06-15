@@ -24,6 +24,7 @@ from sqlalchemy.orm import (
     relationship,
     sessionmaker,
 )
+from sqlalchemy.pool import NullPool
 
 _engine_cache: dict[str, Engine] = {}
 _engine_lock = Lock()
@@ -139,10 +140,18 @@ def _make_engine(db_path: str) -> Engine:
     def _connect() -> sqlite3.Connection:
         return sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
 
+    # NullPool: each checkout opens a fresh sqlite3.Connection in the
+    # caller's thread and closes it on return. SQLAlchemy's default for
+    # ``sqlite://`` URIs is SingletonThreadPool, which Flask's threaded
+    # dev server breaks (a connection opened in thread A gets closed in
+    # thread B during GC, tripping SQLite's ``check_same_thread`` guard).
+    # For a read-only, low-volume sidecar the per-request connect cost
+    # is negligible.
     return create_engine(
         "sqlite://",
         creator=_connect,
         future=True,
+        poolclass=NullPool,
     )
 
 
