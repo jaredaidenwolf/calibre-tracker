@@ -17,7 +17,7 @@ from flask import current_app
 from sqlalchemy import or_, select
 from sqlalchemy.orm import joinedload
 
-from .models import CalibreAuthor, CalibreBook, read_session
+from .models import CalibreAuthor, CalibreBook, CalibreIdentifier, read_session
 
 
 @dataclass(frozen=True)
@@ -49,6 +49,11 @@ def _to_dto(book: CalibreBook, library_root: str) -> BookDTO:
     if book.has_cover:
         cover_path = str(Path(library_root) / book.path / "cover.jpg")
 
+    isbn: str | None = next(
+        (ident.val for ident in book.identifiers if ident.type == "isbn"),
+        None,
+    )
+
     return BookDTO(
         id=book.id,
         title=book.title,
@@ -57,7 +62,7 @@ def _to_dto(book: CalibreBook, library_root: str) -> BookDTO:
         series=series_name,
         series_index=book.series_index if series_name else None,
         tags=tuple(t.name for t in book.tags),
-        isbn=book.isbn or None,
+        isbn=isbn,
         pubdate=book.pubdate,
         path=book.path,
         has_cover=bool(book.has_cover),
@@ -84,6 +89,7 @@ def get_book(book_id: int) -> BookDTO | None:
                 joinedload(CalibreBook.authors),
                 joinedload(CalibreBook.tags),
                 joinedload(CalibreBook.series),
+                joinedload(CalibreBook.identifiers),
             ),
         )
         if book is None:
@@ -108,6 +114,7 @@ def get_books(book_ids: Iterable[int]) -> list[BookDTO]:
                 joinedload(CalibreBook.authors),
                 joinedload(CalibreBook.tags),
                 joinedload(CalibreBook.series),
+                joinedload(CalibreBook.identifiers),
             )
         )
         rows = session.execute(stmt).unique().scalars().all()
@@ -134,14 +141,18 @@ def search_books(query: str, limit: int = 50) -> list[BookDTO]:
                 or_(
                     CalibreBook.title.ilike(pattern),
                     CalibreBook.sort.ilike(pattern),
-                    CalibreBook.isbn.ilike(pattern),
                     CalibreBook.authors.any(CalibreAuthor.name.ilike(pattern)),
+                    CalibreBook.identifiers.any(
+                        (CalibreIdentifier.type == "isbn")
+                        & CalibreIdentifier.val.ilike(pattern)
+                    ),
                 )
             )
             .options(
                 joinedload(CalibreBook.authors),
                 joinedload(CalibreBook.tags),
                 joinedload(CalibreBook.series),
+                joinedload(CalibreBook.identifiers),
             )
             .order_by(CalibreBook.sort, CalibreBook.title)
             .limit(max(1, int(limit)))

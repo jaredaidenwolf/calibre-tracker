@@ -142,13 +142,10 @@ CREATE TABLE books (
     title     TEXT NOT NULL DEFAULT 'Unknown' COLLATE NOCASE,
     sort      TEXT COLLATE NOCASE,
     timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    pubdate   TIMESTAMP DEFAULT '0101-01-01 00:00:00+00:00',
+    pubdate   TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     series_index REAL NOT NULL DEFAULT 1.0,
     author_sort TEXT COLLATE NOCASE,
-    isbn      TEXT DEFAULT '' COLLATE NOCASE,
-    lccn      TEXT DEFAULT '' COLLATE NOCASE,
     path      TEXT NOT NULL DEFAULT '',
-    flags     INTEGER NOT NULL DEFAULT 1,
     uuid      TEXT,
     has_cover BOOL DEFAULT 0,
     last_modified TIMESTAMP NOT NULL DEFAULT '2000-01-01 00:00:00+00:00'
@@ -194,6 +191,14 @@ CREATE TABLE books_tags_link (
     tag  INTEGER NOT NULL,
     UNIQUE(book, tag)
 );
+
+CREATE TABLE identifiers (
+    id   INTEGER PRIMARY KEY,
+    book INTEGER NOT NULL,
+    type TEXT NOT NULL DEFAULT 'isbn' COLLATE NOCASE,
+    val  TEXT NOT NULL COLLATE NOCASE,
+    UNIQUE(book, type)
+);
 """
 
 
@@ -219,20 +224,24 @@ def build(library_root: Path = LIBRARY_ROOT, db_path: Path = DB_PATH) -> None:
         for book in BOOKS:
             conn.execute(
                 """INSERT INTO books
-                   (id, title, sort, pubdate, series_index, isbn, path, has_cover, uuid)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                   (id, title, sort, pubdate, series_index, path, has_cover, uuid)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
                     book.id,
                     book.title,
                     book.sort,
                     book.pubdate,
                     book.series_index,
-                    book.isbn,
                     book.path,
                     book.has_cover,
                     f"uuid-{book.id}",
                 ),
             )
+            if book.isbn:
+                conn.execute(
+                    "INSERT INTO identifiers (book, type, val) VALUES (?, 'isbn', ?)",
+                    (book.id, book.isbn),
+                )
 
             for author_name in book.authors:
                 author_id = _upsert_lookup(conn, "authors", author_name)

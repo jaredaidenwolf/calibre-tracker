@@ -59,7 +59,12 @@ books_series_link = Table(
 
 
 class CalibreBook(CalibreBase):
-    """A row in Calibre's ``books`` table."""
+    """A row in Calibre's ``books`` table.
+
+    Note: Calibre stores ISBNs in the ``identifiers`` table
+    (``type='isbn'``), not on the books row. Use :attr:`identifiers` and
+    the ``isbn`` derived field on :class:`BookDTO`.
+    """
 
     __tablename__ = "books"
 
@@ -68,7 +73,6 @@ class CalibreBook(CalibreBase):
     sort: Mapped[str | None] = mapped_column(Text)
     pubdate: Mapped[str | None] = mapped_column(Text)
     series_index: Mapped[float | None] = mapped_column(Float)
-    isbn: Mapped[str | None] = mapped_column(Text)
     path: Mapped[str] = mapped_column(Text, nullable=False)
     has_cover: Mapped[int] = mapped_column(Integer, default=0)
 
@@ -79,6 +83,9 @@ class CalibreBook(CalibreBase):
         secondary=books_tags_link, viewonly=True, order_by="CalibreTag.name"
     )
     series: Mapped[list[CalibreSeries]] = relationship(secondary=books_series_link, viewonly=True)
+    identifiers: Mapped[list[CalibreIdentifier]] = relationship(
+        "CalibreIdentifier", viewonly=True
+    )
 
 
 class CalibreAuthor(CalibreBase):
@@ -108,6 +115,17 @@ class CalibreSeries(CalibreBase):
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     name: Mapped[str] = mapped_column(Text, nullable=False)
     sort: Mapped[str | None] = mapped_column(Text)
+
+
+class CalibreIdentifier(CalibreBase):
+    """A row in Calibre's ``identifiers`` table (isbn, google, asin, …)."""
+
+    __tablename__ = "identifiers"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    book: Mapped[int] = mapped_column(Integer, ForeignKey("books.id"), nullable=False)
+    type: Mapped[str] = mapped_column(Text, nullable=False)
+    val: Mapped[str] = mapped_column(Text, nullable=False)
 
 
 def _make_engine(db_path: str) -> Engine:
