@@ -7,6 +7,20 @@ Three config classes are provided: a base ``Config`` with shared defaults,
 from __future__ import annotations
 
 import os
+from pathlib import Path
+
+
+def _abs_path(value: str) -> str:
+    """Resolve ``value`` to an absolute path, anchored at the process CWD.
+
+    Flask-SQLAlchemy resolves relative ``sqlite://`` URIs against
+    ``app.instance_path``, which is *not* the CWD — so a relative
+    ``TRACKER_DB_PATH`` like ``./instance/tracker.db`` ends up at
+    ``<instance_path>/instance/tracker.db`` (doubled) and silently
+    fails to open. Normalizing here means the env var can be relative
+    or absolute and the engine URI is always absolute.
+    """
+    return str(Path(value).resolve())
 
 
 def _env_bool(name: str, default: bool = False) -> bool:
@@ -28,7 +42,7 @@ class Config:
 
     CALIBRE_DB_PATH: str = os.environ.get("CALIBRE_DB_PATH", "/calibre-library/metadata.db")
     CWA_DB_PATH: str = os.environ.get("CWA_DB_PATH", "/cwa/app.db")
-    TRACKER_DB_PATH: str = os.environ.get("TRACKER_DB_PATH", "/config/tracker.db")
+    TRACKER_DB_PATH: str = _abs_path(os.environ.get("TRACKER_DB_PATH", "/config/tracker.db"))
 
     CALIBRE_LIBRARY_PATH: str = os.environ.get("CALIBRE_LIBRARY_PATH", "/calibre-library")
 
@@ -88,7 +102,7 @@ class TestConfig(Config):
     @property
     def SQLALCHEMY_DATABASE_URI(self) -> str:  # noqa: N802 — Flask convention
         path = os.environ.get("TRACKER_DB_PATH")
-        return f"sqlite:///{path}" if path else "sqlite:///:memory:"
+        return f"sqlite:///{_abs_path(path)}" if path else "sqlite:///:memory:"
 
 
 _CONFIG_MAP: dict[str, type[Config]] = {
