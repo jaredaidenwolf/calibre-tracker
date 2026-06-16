@@ -192,16 +192,21 @@
   font-weight: 400;
 }
 
-.tracker-search-form {
-  margin: 0 0 2rem;
-  display: flex;
-  gap: 0.5rem;
+.tracker-page-title {
+  margin: 0 0 1.5rem;
+  font-size: 1.6rem;
+  font-weight: 600;
 }
-.tracker-search-form .form-group {
-  flex: 1 1 auto;
+
+.tracker-section-viewall {
+  float: right;
+  font-size: 0.85rem;
+  font-weight: 400;
+  opacity: 0.7;
+  margin-top: 0.4em;
 }
-.tracker-search-form .form-control {
-  width: 100%;
+.tracker-section-viewall:hover {
+  opacity: 1;
 }
 
 .tracker-section-count {

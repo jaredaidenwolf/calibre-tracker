@@ -1,35 +1,10 @@
 {# base.html — the template all tracker pages extend.
-   Inherits caliBlur look entirely from layout.html and layers on the tracker
-   extension stylesheet and primary nav links. #}
+   Inherits the caliBlur structural shell from layout.html and layers
+   on the tracker extension stylesheet. The sidebar and navbar are
+   handled by layout.html; per-page templates only need to override
+   ``title``, ``body_class`` (for body.<page> hooks), and ``body``. #}
 {% extends "layout.html" %}
 
 {% block head_extras %}
   <link rel="stylesheet" href="{{ url_for('static', filename='css/tracker.css') }}">
-{% endblock %}
-
-{% block navbar_primary %}
-  <li class="{{ 'active' if (request.endpoint or '').startswith('tracker.dashboard') }}">
-    <a href="/">
-      <span class="glyphicon glyphicon-book"></span>
-      <span class="hidden-sm"> My Reading</span>
-    </a>
-  </li>
-  <li class="{{ 'active' if (request.endpoint or '').startswith('tracker.quotes') }}">
-    <a href="#" title="Coming in Phase 7">
-      <span class="glyphicon glyphicon-comment"></span>
-      <span class="hidden-sm"> Quotes</span>
-    </a>
-  </li>
-  <li class="{{ 'active' if (request.endpoint or '').startswith('tracker.shelves') }}">
-    <a href="#" title="Coming in Phase 8">
-      <span class="glyphicon glyphicon-list"></span>
-      <span class="hidden-sm"> Shelves</span>
-    </a>
-  </li>
-  <li class="{{ 'active' if (request.endpoint or '').startswith('tracker.stats') }}">
-    <a href="#" title="Coming in Phase 9">
-      <span class="glyphicon glyphicon-stats"></span>
-      <span class="hidden-sm"> Stats</span>
-    </a>
-  </li>
 {% endblock %}

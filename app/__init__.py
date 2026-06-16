@@ -38,8 +38,22 @@ def create_app(config: str | Config | None = None) -> Flask:
     _register_routes(app)
     _register_auth(app)
     _register_tracker(app)
+    _register_template_globals(app)
 
     return app
+
+
+def _register_template_globals(app: Flask) -> None:
+    """Expose helpers every template can use without an explicit import."""
+    from .tracker.nav import item_is_active, resolve_item_url, sidebar_sections
+
+    @app.context_processor
+    def _tracker_nav() -> dict[str, Any]:
+        return {
+            "tracker_sidebar_sections": sidebar_sections,
+            "tracker_sidebar_url": resolve_item_url,
+            "tracker_sidebar_active": item_is_active,
+        }
 
 
 def _register_auth(app: Flask) -> None:

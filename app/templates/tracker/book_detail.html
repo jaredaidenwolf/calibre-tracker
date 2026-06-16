@@ -1,6 +1,7 @@
 {% extends "base.html" %}
 
-{% block title %}{{ book.title }} — My Reading{% endblock %}
+{% block title %}{{ book.title }}{% endblock %}
+{% block body_class %}tracker-book{% endblock %}
 
 {% block body %}
   <div class="book-detail-grid">

@@ -1,6 +1,7 @@
 {% extends "base.html" %}
 
 {% block title %}My Reading{% endblock %}
+{% block body_class %}tracker-dashboard{% endblock %}
 
 {% block body %}
   <div class="tracker-section">
@@ -30,26 +31,22 @@
     </div>
   </div>
 
-  <form action="{{ url_for('tracker.search') }}" method="get" class="form-inline tracker-search-form">
-    <div class="form-group">
-      <label for="search-q" class="sr-only">Search library</label>
-      <input type="text" id="search-q" name="q" class="form-control" placeholder="Search your library to log a book…">
-    </div>
-    <button type="submit" class="btn btn-default">
-      <span class="glyphicon glyphicon-search"></span> Search
-    </button>
-  </form>
-
-  {% for title, status_key, entries in sections %}
-    <div class="tracker-section">
+  {% for section in sections %}
+    <div class="tracker-section" id="section-{{ section.status_key }}">
       <h2 class="tracker-section-title">
-        {{ title }}
-        <small class="tracker-section-count">{{ entries|length }}</small>
+        {{ section.title }}
+        <small class="tracker-section-count">{{ section.total }}</small>
+        {% if section.total > section.limit %}
+          <a class="tracker-section-viewall"
+             href="{{ url_for('tracker.status_list', status=section.status_key) }}">
+            View all {{ section.total }} &raquo;
+          </a>
+        {% endif %}
       </h2>
 
-      {% if entries %}
+      {% if section.entries %}
         <div class="row tracker-book-grid">
-          {% for entry in entries %}
+          {% for entry in section.entries %}
             <div class="col-xs-6 col-sm-4 col-md-3 col-lg-2">
               {% if entry.book %}
                 {% set book = entry.book %}

@@ -107,7 +107,7 @@ def test_dashboard_groups_by_status(alice_client, app_context):
     body = resp.get_data(as_text=True)
     assert "Currently Reading" in body
     assert "Want to Read" in body
-    assert "Recently Finished" in body
+    assert "Finished" in body
     # Each book should appear with its title in its section.
     assert "The Fifth Season" in body
     assert "Project Hail Mary" in body
