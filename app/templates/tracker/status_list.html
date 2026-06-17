@@ -4,37 +4,39 @@
 {% block body_class %}tracker-status-list{% endblock %}
 
 {% block body %}
-  <h1 class="tracker-page-title">
-    {{ title }}
-    <small class="tracker-section-count">{{ total }}</small>
-  </h1>
+  <div class="discover">
+    <h2>
+      {{ title }}
+      <small class="tracker-section-count">{{ total }}</small>
+    </h2>
 
-  {% if entries %}
-    <div class="row tracker-book-grid">
-      {% for entry in entries %}
-        <div class="col-xs-6 col-sm-4 col-md-3 col-lg-2">
-          {% if entry.book %}
-            {% set book = entry.book %}
-            {% set status = entry.log.status %}
-            {% set rating = entry.log.rating %}
-            {% include 'components/book_card.html' %}
-          {% else %}
-            <div class="book-card-tracker book-card-tombstone">
-              <div class="book-cover">
-                <div class="cover-fallback">
-                  <span>Book #{{ entry.log.calibre_book_id }}<br><em>(no longer in library)</em></span>
+    {% if entries %}
+      <div class="row display-flex">
+        {% for entry in entries %}
+          <div class="col-xs-6 col-sm-3 tracker-book-col">
+            {% if entry.book %}
+              {% set book = entry.book %}
+              {% set status = entry.log.status %}
+              {% set rating = entry.log.rating %}
+              {% include 'components/book_card.html' %}
+            {% else %}
+              <div class="book-card-tracker book-card-tombstone">
+                <div class="book-cover">
+                  <div class="cover-fallback">
+                    <span>Book #{{ entry.log.calibre_book_id }}<br><em>(no longer in library)</em></span>
+                  </div>
+                </div>
+                <div class="book-card-meta">
+                  <p class="book-card-title">Missing book</p>
+                  <p class="book-card-author">{{ entry.log.status | replace('_', ' ') }}</p>
                 </div>
               </div>
-              <div class="book-card-meta">
-                <p class="book-card-title">Missing book</p>
-                <p class="book-card-author">{{ entry.log.status | replace('_', ' ') }}</p>
-              </div>
-            </div>
-          {% endif %}
-        </div>
-      {% endfor %}
-    </div>
-  {% else %}
-    <p class="tracker-empty">Nothing here yet. Add books to this list from any book's detail page.</p>
-  {% endif %}
+            {% endif %}
+          </div>
+        {% endfor %}
+      </div>
+    {% else %}
+      <p class="tracker-empty">Nothing here yet. Add books to this list from any book's detail page.</p>
+    {% endif %}
+  </div>
 {% endblock %}
