@@ -88,7 +88,6 @@ def test_tracker_css_defines_all_documented_variables(tracker_css):
         "--tracker-star-empty",
         "--tracker-progress-bg",
         "--tracker-progress-fill",
-        "--tracker-card-hover-border",
     )
     missing = [v for v in expected if v not in tracker_css]
     assert not missing, f"tracker.css missing variables: {missing}"

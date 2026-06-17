@@ -133,6 +133,20 @@ def _quick_stats(user_id: int) -> dict:
 # ── Dashboard ───────────────────────────────────────────────────────────────
 
 
+DASHBOARD_SECTION_LIMIT = 5
+"""Each dashboard section shows up to this many books in a single row.
+The full list per status lives at ``tracker.status_list``."""
+
+
+STATUS_LABELS: dict[str, str] = {
+    "reading": "Currently Reading",
+    "want_to_read": "Want to Read",
+    "read": "Finished",
+    "dnf": "Did Not Finish",
+    "re_reading": "Re-reading",
+}
+
+
 @tracker_bp.get("/")
 @login_required
 def dashboard() -> Response:
@@ -146,17 +160,57 @@ def dashboard() -> Response:
         )
 
     grouped = _logs_by_status(current_user.id)
-    sections = [
-        ("Currently Reading", "reading", _attach_books(grouped.get("reading", []))),
-        ("Want to Read", "want_to_read", _attach_books(grouped.get("want_to_read", []))),
-        ("Recently Finished", "read", _attach_books(grouped.get("read", [])[:12])),
-        ("Did Not Finish", "dnf", _attach_books(grouped.get("dnf", []))),
-    ]
+    dashboard_order = ("reading", "want_to_read", "read", "dnf")
+    sections = []
+    for key in dashboard_order:
+        all_logs = grouped.get(key, [])
+        sections.append(
+            {
+                "title": STATUS_LABELS[key],
+                "status_key": key,
+                "entries": _attach_books(all_logs[:DASHBOARD_SECTION_LIMIT]),
+                "total": len(all_logs),
+                "limit": DASHBOARD_SECTION_LIMIT,
+            }
+        )
 
     return render_template(
         "tracker/dashboard.html",
         sections=sections,
         stats=_quick_stats(current_user.id),
+    )
+
+
+@tracker_bp.get("/list/<status>")
+@login_required
+def status_list(status: str) -> Response:
+    """Show every book the user has logged under a single status.
+
+    The special status ``"all"`` shows every logged book (excluding
+    rereads), freshest-first. Otherwise ``status`` must be one of the
+    keys in :data:`STATUS_LABELS`.
+
+    No pagination yet — returns the full list. Real pagination can come
+    later if libraries get big enough that this matters.
+    """
+    if status == "all":
+        logs = (
+            ReadingLog.query.filter_by(user_id=current_user.id, is_reread=False)
+            .order_by(ReadingLog.updated_at.desc())
+            .all()
+        )
+        title = "All books"
+    elif status in STATUS_LABELS:
+        logs = _logs_by_status(current_user.id).get(status, [])
+        title = STATUS_LABELS[status]
+    else:
+        abort(404)
+    return render_template(
+        "tracker/status_list.html",
+        status=status,
+        title=title,
+        entries=_attach_books(logs),
+        total=len(logs),
     )
 
 

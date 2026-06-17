@@ -1,10 +1,22 @@
 {% extends "base.html" %}
 
-{% block title %}My Reading{% endblock %}
+{% block title %}Overview{% endblock %}
+{% block body_class %}tracker-dashboard{% endblock %}
 
 {% block body %}
-  <div class="tracker-section">
-    <div class="row tracker-stats-strip">
+  {# Page title banner — single .discover > h2 so caliBlur paints the
+     fixed top-banner that matches CWN's "Books" / "Authors" pages. #}
+  <div class="discover tracker-page-banner">
+    <h2>Overview</h2>
+  </div>
+
+  {# Sections below DON'T use .discover: caliBlur turns every
+     .discover > h2 into a fixed-position 60px banner and multiple
+     sections would pile on top of each other. The dashboard's
+     per-status sections use tracker-owned wrappers with inline
+     headings instead. #}
+  <div class="tracker-stats-strip">
+    <div class="row">
       <div class="col-xs-6 col-sm-3">
         <div class="goal-ring-label">Read in {{ stats.year }}</div>
         <div class="tracker-stat-value">{{ stats.finished_this_year }}</div>
@@ -30,52 +42,52 @@
     </div>
   </div>
 
-  <form action="{{ url_for('tracker.search') }}" method="get" class="form-inline tracker-search-form">
-    <div class="form-group">
-      <label for="search-q" class="sr-only">Search library</label>
-      <input type="text" id="search-q" name="q" class="form-control" placeholder="Search your library to log a book…">
-    </div>
-    <button type="submit" class="btn btn-default">
-      <span class="glyphicon glyphicon-search"></span> Search
-    </button>
-  </form>
+  {% for section in sections %}
+    <section class="tracker-section" id="section-{{ section.status_key }}">
+      <header class="tracker-section-header">
+        <h2 class="tracker-section-title">
+          {{ section.title }}
+          <span class="tracker-section-count">({{ section.total }})</span>
+        </h2>
+        {% if section.total > 0 %}
+          <a class="tracker-section-viewall"
+             href="{{ url_for('tracker.status_list', status=section.status_key) }}">
+            View all &raquo;
+          </a>
+        {% endif %}
+      </header>
 
-  {% for title, status_key, entries in sections %}
-    <div class="tracker-section">
-      <h2 class="tracker-section-title">
-        {{ title }}
-        <small class="tracker-section-count">{{ entries|length }}</small>
-      </h2>
-
-      {% if entries %}
-        <div class="row tracker-book-grid">
-          {% for entry in entries %}
-            <div class="col-xs-6 col-sm-4 col-md-3 col-lg-2">
-              {% if entry.book %}
+      {% if section.entries %}
+        <div class="row display-flex">
+          {% for entry in section.entries %}
+            {% if entry.book %}
+              <div class="col-xs-6 col-sm-3 col-lg-2 book session" id="books">
                 {% set book = entry.book %}
                 {% set status = entry.log.status %}
                 {% set rating = entry.log.rating %}
                 {% include 'components/book_card.html' %}
-              {% else %}
-                {# Tombstone: log row points at a deleted/missing Calibre book. #}
-                <div class="book-card-tracker book-card-tombstone">
-                  <div class="book-cover">
-                    <div class="cover-fallback">
-                      <span>Book #{{ entry.log.calibre_book_id }}<br><em>(no longer in library)</em></span>
-                    </div>
-                  </div>
-                  <div class="book-card-meta">
-                    <p class="book-card-title">Missing book</p>
-                    <p class="book-card-author">{{ entry.log.status | replace('_', ' ') }}</p>
-                  </div>
+              </div>
+            {% else %}
+              {# Tombstone: log row points at a deleted/missing Calibre book. #}
+              <div class="col-xs-6 col-sm-3 col-lg-2 book session tracker-tombstone" id="books">
+                <div class="cover">
+                  <span class="img">
+                    <span class="cover-fallback">
+                      Book #{{ entry.log.calibre_book_id }}<br><em>(no longer in library)</em>
+                    </span>
+                  </span>
                 </div>
-              {% endif %}
-            </div>
+                <div class="meta">
+                  <p class="title">Missing book</p>
+                  <p class="author">{{ entry.log.status | replace('_', ' ') }}</p>
+                </div>
+              </div>
+            {% endif %}
           {% endfor %}
         </div>
       {% else %}
         <p class="tracker-empty">Nothing here yet.</p>
       {% endif %}
-    </div>
+    </section>
   {% endfor %}
 {% endblock %}

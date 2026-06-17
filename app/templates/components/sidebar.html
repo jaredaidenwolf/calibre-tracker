@@ -1,0 +1,28 @@
+{# Sidebar partial — renders caliBlur's #scnd-nav inside .col-sm-2.
+   Items come from app.tracker.nav.sidebar_sections() via the
+   ``tracker_sidebar_sections`` context processor. #}
+<div class="col-sm-2">
+  <nav class="navigation">
+    <ul class="list-unstyled" id="scnd-nav"
+        intent in-standard-append="nav.navigation" in-mobile-after="#main-nav" in-mobile-class="nav navbar-nav">
+      {% for section in tracker_sidebar_sections() %}
+        <li class="nav-head hidden-xs">{{ section.title }}</li>
+        {% for item in section.items %}
+          {% set url = tracker_sidebar_url(item) %}
+          <li{% if tracker_sidebar_active(item) %} class="active"{% endif %}>
+            {% if url %}
+              <a href="{{ url }}"{% if item.title %} title="{{ item.title }}"{% endif %}>
+                <span class="glyphicon {{ item.glyph }}"></span> {{ item.label }}
+              </a>
+            {% else %}
+              <a href="#" class="disabled" title="{{ item.title or 'Not available yet' }}"
+                 onclick="event.preventDefault();">
+                <span class="glyphicon {{ item.glyph }}"></span> {{ item.label }}
+              </a>
+            {% endif %}
+          </li>
+        {% endfor %}
+      {% endfor %}
+    </ul>
+  </nav>
+</div>

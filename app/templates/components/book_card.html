@@ -1,10 +1,14 @@
 {#
-  book_card.html — Render a single book as a cover-forward card.
+  book_card.html — Render a single book using caliBlur's structural
+  class names (.book.session > .cover > a > .img > img, .meta > .title
+  / .author) so the vendored caliBlur stylesheet paints the typography,
+  cover hover overlay, and badges. tracker.css adds responsive widths
+  + status-badge color variants on top.
 
   Params:
-    book   (BookDTO)   — required; see app/calibre/repository.py
-    status (str|None)  — optional reading status; renders a status badge
-    rating (int|None)  — optional 1..10 rating; renders static star row
+    book   (BookDTO)   — required
+    status (str|None)  — optional reading status; rendered as a corner badge
+    rating (int|None)  — optional 1..10 rating; rendered as static stars
     href   (str|None)  — link target; defaults to /book/<id>
 #}
 {% set book   = book   if book   is defined else None %}
@@ -12,32 +16,71 @@
 {% set rating = rating if rating is defined else None %}
 {% set href   = href   if href   is defined else url_for('tracker.book_detail', book_id=book.id) %}
 
+{# Map reading status → glyphicon + human label for the cover badge. #}
+{% set status_glyphs = {
+    'reading':      'book',
+    'want_to_read': 'bookmark',
+    'read':         'check',
+    'dnf':          'remove',
+    're_reading':   'refresh',
+} %}
+{% set status_labels = {
+    'reading':      'Reading',
+    'want_to_read': 'Want',
+    'read':         'Read',
+    'dnf':          'DNF',
+    're_reading':   'Reread',
+} %}
+
 {% if book %}
-<a class="book-card-tracker" href="{{ href }}">
-  {% if status %}
-    <span class="badge-status badge-{{ status | replace('_', '-') }}">
-      {{ status | replace('_', ' ') }}
+{#
+  Mirrors CWN's index.html grid item: the outer wrapper (with
+  ``book session`` + ``id="books"`` + Bootstrap col classes) lives in
+  the parent template (dashboard.html / status_list.html / search.html);
+  this partial only renders the .cover and .meta children that go
+  inside it. That way caliBlur's ``.book`` / ``#books`` selectors apply
+  to the Bootstrap column directly, matching CWN.
+#}
+<div class="cover">
+  <a href="{{ href }}" class="book-cover-link">
+    <span class="img" title="{{ book.title }}">
+      {% if book.has_cover %}
+        <img src="{{ url_for('tracker.cover', book_id=book.id) }}"
+             alt="Cover of {{ book.title }}" loading="lazy">
+      {% else %}
+        <span class="cover-fallback">{{ book.title }}</span>
+      {% endif %}
+      {% if status %}
+        {# Mirrors CWN's image.cover_badges macro: bottom-left stack of
+           dark translucent pills. The base .cover-badge styling comes
+           from book_organizer.css; we tint per status via the existing
+           .badge-{name} colour classes (shared with the book detail
+           page) which carry !important and override .cover-badge's
+           default background. #}
+        <div class="cover-badges">
+          <span class="cover-badge cover-badge-status badge-{{ status | replace('_', '-') }}"
+                title="{{ status | replace('_', ' ') }}">
+            <span class="glyphicon glyphicon-{{ status_glyphs.get(status, 'book') }}" aria-hidden="true"></span>
+            <span class="cover-badge-status-label">{{ status_labels.get(status, status | replace('_', ' ')) }}</span>
+          </span>
+        </div>
+      {% endif %}
     </span>
+  </a>
+</div>
+<div class="meta">
+  <a href="{{ href }}">
+    <p title="{{ book.title }}" class="title">{{ book.title }}</p>
+  </a>
+  {% if book.authors %}
+    <p class="author">
+      {% for author in book.authors %}<a class="author-name" href="{{ href }}">{{ author }}</a>{% if not loop.last %} &amp; {% endif %}{% endfor %}
+    </p>
   {% endif %}
-
-  <div class="book-cover">
-    {% if book.has_cover %}
-      <img src="{{ url_for('tracker.cover', book_id=book.id) }}" alt="Cover of {{ book.title }}">
-    {% else %}
-      <div class="cover-fallback">
-        <span>{{ book.title }}</span>
-      </div>
-    {% endif %}
-  </div>
-
-  <div class="book-card-meta">
-    <p class="book-card-title">{{ book.title }}</p>
-    {% if book.authors %}
-      <p class="book-card-author">{{ book.authors | join(', ') }}</p>
-    {% endif %}
-    {% if rating %}
+  {% if rating %}
+    <div class="tracker-card-rating">
       {% include 'components/rating_stars.html' %}
-    {% endif %}
-  </div>
-</a>
+    </div>
+  {% endif %}
+</div>
 {% endif %}

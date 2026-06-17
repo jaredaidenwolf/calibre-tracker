@@ -1,38 +1,32 @@
 {% extends "base.html" %}
 
-{% block title %}{{ query or 'Search' }} — My Reading{% endblock %}
+{% block title %}{{ query or 'Search' }}{% endblock %}
+{% block body_class %}tracker-search{% endblock %}
 
 {% block body %}
-  <form action="{{ url_for('tracker.search') }}" method="get" class="form-inline tracker-search-form">
-    <div class="form-group">
-      <label for="search-q" class="sr-only">Search library</label>
-      <input type="text" id="search-q" name="q" class="form-control"
-             value="{{ query }}"
-             placeholder="Search your library to log a book…" autofocus>
-    </div>
-    <button type="submit" class="btn btn-default">
-      <span class="glyphicon glyphicon-search"></span> Search
-    </button>
-  </form>
-
-  {% if query and not results %}
-    <p class="tracker-empty">No books match “{{ query }}”.</p>
-  {% elif results %}
-    <div class="tracker-section">
-      <h2 class="tracker-section-title">
-        Results
+  <div class="discover">
+    <h2>
+      {% if query %}
+        Search results for &ldquo;{{ query }}&rdquo;
         <small class="tracker-section-count">{{ results|length }}</small>
-      </h2>
-      <div class="row tracker-book-grid">
+      {% else %}
+        Search
+      {% endif %}
+    </h2>
+
+    {% if query and not results %}
+      <p class="tracker-empty">No books match “{{ query }}”.</p>
+    {% elif results %}
+      <div class="row display-flex">
         {% for book in results %}
-          <div class="col-xs-6 col-sm-4 col-md-3 col-lg-2">
+          <div class="col-xs-6 col-sm-3 col-lg-2 book session" id="books">
             {% set status = statuses.get(book.id) %}
             {% include 'components/book_card.html' %}
           </div>
         {% endfor %}
       </div>
-    </div>
-  {% elif not query %}
-    <p class="tracker-empty">Type a title, author, or ISBN to find a book in your Calibre library.</p>
-  {% endif %}
+    {% elif not query %}
+      <p class="tracker-empty">Type a title, author, or ISBN to find a book in your Calibre library.</p>
+    {% endif %}
+  </div>
 {% endblock %}

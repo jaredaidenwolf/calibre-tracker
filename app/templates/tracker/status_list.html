@@ -1,0 +1,44 @@
+{% extends "base.html" %}
+
+{% block title %}{{ title }}{% endblock %}
+{% block body_class %}tracker-status-list{% endblock %}
+
+{% block body %}
+  <div class="discover">
+    <h2>
+      {{ title }}
+      <small class="tracker-section-count">{{ total }}</small>
+    </h2>
+
+    {% if entries %}
+      <div class="row display-flex">
+        {% for entry in entries %}
+          {% if entry.book %}
+            <div class="col-xs-6 col-sm-3 col-lg-2 book session" id="books">
+              {% set book = entry.book %}
+              {% set status = entry.log.status %}
+              {% set rating = entry.log.rating %}
+              {% include 'components/book_card.html' %}
+            </div>
+          {% else %}
+            <div class="col-xs-6 col-sm-3 col-lg-2 book session tracker-tombstone" id="books">
+              <div class="cover">
+                <span class="img">
+                  <span class="cover-fallback">
+                    Book #{{ entry.log.calibre_book_id }}<br><em>(no longer in library)</em>
+                  </span>
+                </span>
+              </div>
+              <div class="meta">
+                <p class="title">Missing book</p>
+                <p class="author">{{ entry.log.status | replace('_', ' ') }}</p>
+              </div>
+            </div>
+          {% endif %}
+        {% endfor %}
+      </div>
+    {% else %}
+      <p class="tracker-empty">Nothing here yet. Add books to this list from any book's detail page.</p>
+    {% endif %}
+  </div>
+{% endblock %}
