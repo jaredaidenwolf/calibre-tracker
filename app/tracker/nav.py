@@ -81,7 +81,7 @@ def sidebar_sections() -> tuple[SidebarSection, ...]:
                 ),
                 SidebarItem(
                     label="Finished",
-                    glyph="glyphicon-ok",
+                    glyph="glyphicon-check",
                     endpoint="tracker.status_list",
                     endpoint_kwargs={"status": "read"},
                 ),

@@ -1,0 +1,559 @@
+/* Book organizer bar — sort dropdown (left) + multi-select & settings (right). */
+
+.book-organizer-bar-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  margin-bottom: 20px;
+  width: 100%;
+}
+
+.book-organizer-bar-wrap > .book-organizer-bar {
+  margin-bottom: 0;
+}
+
+/* When the wrap sits inside a panel (.shelf-actions on index.html), the panel
+   already provides bottom padding — drop the wrap's own margin so top and
+   bottom spacing match. */
+.shelf-actions .book-organizer-bar-wrap {
+  margin-bottom: 0;
+}
+
+.book-organizer-bar {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 20px;
+  width: 100%;
+}
+
+.book-organizer-bar-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.book-organizer-bar-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 0 0 auto;
+}
+
+.book-organizer-sort {
+  position: relative;
+  max-width: 100%;
+}
+
+.book-organizer-sort-toggle,
+.book-organizer-multiselect-toggle,
+.book-organizer-settings-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  white-space: nowrap;
+}
+
+.book-organizer-sort-toggle {
+  max-width: 100%;
+}
+
+.book-organizer-icons {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  flex-shrink: 0;
+}
+
+.book-organizer-icons .glyphicon + .glyphicon {
+  margin-left: 0;
+}
+
+.book-organizer-sort-toggle .book-organizer-label {
+  font-weight: normal;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 220px;
+}
+
+.book-organizer-menu {
+  min-width: 260px;
+  max-height: 70vh;
+  overflow-y: auto;
+  padding: 4px 0;
+}
+
+.book-organizer-menu > li > a {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 16px;
+  white-space: nowrap;
+}
+
+.book-organizer-menu > li > a .book-organizer-icons {
+  min-width: 56px;
+  justify-content: flex-start;
+}
+
+.book-organizer-menu > li > a .book-organizer-label {
+  flex: 1 1 auto;
+}
+
+.book-organizer-menu > li.active > a,
+.book-organizer-menu > li.active > a:hover,
+.book-organizer-menu > li.active > a:focus {
+  background-color: #337ab7;
+  color: #fff;
+}
+
+.book-organizer-settings-menu > li > a {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 16px;
+}
+
+/* Mobile: wrap the bar so the sort dropdown gets the full row and the
+   action icons stack below. Operator screenshot at iPhone 14 (414px)
+   showed "DATE ADDED, NEWES..." still truncating in v4.0.125 because
+   the .shelf-actions parent panel constrains the bar to ~324px
+   regardless of viewport width, leaving only ~218px for the dropdown
+   side after subtracting the icon group + gap. Wrapping at <=480px is
+   the cleanest path — the dropdown reclaims the full row, the icons
+   sit underneath, and we stop fighting the panel chrome for pixels.
+   Combined with hiding the decorative leading icons (book + calendar +
+   sort-lines glyphs that the v4.0.125 fix already removed) and
+   tightening dropdown vertical padding, this gives common sort labels
+   like "Date added, newest first" room to render without ellipsis. */
+@media (max-width: 480px) {
+  .book-organizer-bar {
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  .book-organizer-bar-left,
+  .book-organizer-bar-right {
+    flex: 1 1 100%;
+    width: 100%;
+  }
+  /* Keep the multi-select + settings buttons right-aligned when the bar wraps
+     to its own row on mobile — matches desktop (space-between pushes them
+     right) and, critically, keeps the settings dropdown-menu-right popover on
+     screen: a left-aligned button made it open off the left edge. */
+  .book-organizer-bar-right {
+    gap: 6px;
+    justify-content: flex-end;
+  }
+  /* Sort dropdown sized to its parent (now full width of the bar row). */
+  .book-organizer-sort,
+  .book-organizer-sort-toggle {
+    width: 100%;
+    max-width: 100%;
+  }
+  /* Tighten dropdown vertical padding so the row isn't oversized. */
+  .book-organizer-sort-toggle {
+    padding-top: 6px;
+    padding-bottom: 6px;
+  }
+  /* Fork #288: the leading book + calendar + sort-lines decorative
+     glyphs were eating label space — they're pure decoration since
+     the dropdown caret already implies "click to sort". Hide on mobile. */
+  .book-organizer-sort-toggle .book-organizer-icons {
+    display: none;
+  }
+  /* Now that the sort dropdown owns the full row, the label can
+     stretch — drop the cap. Caret + padding still leave ~280-360px
+     for the text on viewports between 360-440px. */
+  .book-organizer-sort-toggle .book-organizer-label {
+    max-width: none;
+    flex: 1 1 auto;
+  }
+}
+
+/* Override any caliBlur-era fixed positioning that might bleed in via parent rules. */
+.book-organizer-bar,
+.shelf-actions .book-organizer-bar {
+  position: static !important;
+  float: none !important;
+  top: auto !important;
+  right: auto !important;
+}
+
+/* Allow the wrapper around the shelf organizer to dim the bar when reorder mode is active. */
+.book-organizer-wrap-disabled .book-organizer-bar {
+  opacity: 0.55;
+  pointer-events: none;
+}
+
+/* ------- Multi-select mode ------- */
+
+body.book-organizer-select-mode .book-cover-link {
+  cursor: pointer;
+}
+
+/* Suppress caliBlur cover-hover quick actions while in select mode:
+   the orange "open book" badge (::before pseudo on the cover link) and
+   the read/edit/send buttons appended by caliBlur.js. They're confusing
+   and clickable inside select mode, where the cover should only toggle
+   selection. */
+body.book-organizer-select-mode .book .cover > a::before,
+body.book-organizer-select-mode .book .cover > a:hover::before,
+body.book-organizer-select-mode .book .read-toggle-btn,
+body.book-organizer-select-mode .book .edit-metadata-btn,
+body.book-organizer-select-mode .book .send-ereader-btn,
+body.book-organizer-select-mode #books > .cover > a::before,
+body.book-organizer-select-mode #books > .cover > a:hover::before,
+body.book-organizer-select-mode #books_rand > .cover > a::before,
+body.book-organizer-select-mode #books_rand > .cover > a:hover::before,
+body.book-organizer-select-mode .book.isotope-item > .cover > a::before,
+body.book-organizer-select-mode .book.isotope-item > .cover > a:hover::before {
+  display: none !important;
+  content: none !important;
+  opacity: 0 !important;
+  pointer-events: none !important;
+}
+
+/* Also kill any other hover state changes on the cover link in select mode. */
+body.book-organizer-select-mode .book-cover-link.hovering-read-icon::before {
+  background: transparent !important;
+  transform: none !important;
+}
+
+.book-organizer-checkbox {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.92);
+  border: 2px solid #337ab7;
+  z-index: 6;
+  pointer-events: none;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  color: transparent;
+  font-weight: bold;
+  font-size: 16px;
+  line-height: 1;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.35);
+  transition: background-color 0.12s ease, color 0.12s ease;
+}
+
+body.book-organizer-select-mode .book-organizer-checkbox {
+  display: flex;
+}
+
+body.book-organizer-select-mode .book.is-selected .book-organizer-checkbox {
+  background-color: #337ab7;
+  color: #fff;
+  border-color: #fff;
+}
+
+body.book-organizer-select-mode .book.is-selected .cover .img {
+  outline: 3px solid #337ab7;
+  outline-offset: -3px;
+}
+
+body.book-organizer-select-mode .book .cover {
+  position: relative;
+}
+
+.book-organizer-multiselect-toggle.active,
+.book-organizer-multiselect-toggle[aria-pressed="true"] {
+  background-color: #2c5d8f;
+  border-color: #2c5d8f;
+}
+
+/* ------- Selection actions row (second line of the organizer bar) ------- */
+
+.book-organizer-actions-row {
+  display: none;
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 0 0;
+  margin-top: 12px;
+  background: transparent;
+  border: 0;
+  border-top: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 0;
+  flex-wrap: wrap;
+}
+
+body.book-organizer-select-mode .book-organizer-actions-row[hidden],
+body.book-organizer-select-mode .book-organizer-actions-row {
+  display: flex;
+}
+
+.book-organizer-actions-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.book-organizer-actions-right {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex: 0 0 auto;
+}
+
+.book-organizer-actions-row .btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+}
+
+.book-organizer-actions-row .book-organizer-count {
+  color: #fff;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.book-organizer-action-shelf .dropdown-menu,
+.book-organizer-action-mark .dropdown-menu {
+  max-height: 60vh;
+  overflow-y: auto;
+  min-width: 200px;
+}
+
+.book-organizer-action-shelf .dropdown-menu > li > a,
+.book-organizer-action-mark .dropdown-menu > li > a {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 16px;
+}
+
+/* Mobile: stack the second row to keep things tappable. */
+@media (max-width: 600px) {
+  .book-organizer-actions-row {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 8px;
+  }
+  .book-organizer-actions-left,
+  .book-organizer-actions-right {
+    justify-content: space-between;
+    flex-wrap: wrap;
+  }
+  .book-organizer-actions-left .btn,
+  .book-organizer-actions-left .dropdown {
+    flex: 1 1 auto;
+  }
+  .book-organizer-actions-left .btn {
+    justify-content: center;
+  }
+}
+
+/* Disabled state when no books are selected: show actions row, but no-op the bulk buttons. */
+.book-organizer-actions-row.is-empty .book-organizer-action-shelf > .dropdown-toggle,
+.book-organizer-actions-row.is-empty .book-organizer-action-mark > .dropdown-toggle,
+.book-organizer-actions-row.is-empty .book-organizer-action-delete {
+  opacity: 0.5;
+  pointer-events: none;
+}
+
+/* Cover badges (bottom-left): read checkmark on top, shelf capsule below. */
+.cover-badges {
+  position: absolute;
+  bottom: 8px;
+  left: 8px;
+  z-index: 4;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  pointer-events: none;
+  max-width: calc(100% - 16px);
+}
+
+.cover-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 3px 8px;
+  border-radius: 999px;
+  background: rgba(15, 23, 32, 0.88);
+  color: #fff;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.4);
+  backdrop-filter: blur(2px);
+  -webkit-backdrop-filter: blur(2px);
+  pointer-events: auto;
+  line-height: 1;
+  max-width: 100%;
+}
+
+.cover-badge .glyphicon {
+  font-size: 10px;
+}
+
+.cover-badge-read {
+  background: #2c8b3a;
+  color: #fff;
+  padding: 3px 8px;
+}
+.cover-badge-read .glyphicon { font-size: 11px; }
+.cover-badge-read-label { letter-spacing: 0.3px; }
+
+.cover-badge-shelf {
+  background: rgba(20, 30, 40, 0.92);
+  color: #fff;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+}
+
+.cover-badge-shelf-name {
+  max-width: 110px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cover-badge-shelf-extra-pill {
+  background: rgba(20, 30, 40, 0.92);
+  color: #fff;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  font-weight: 500;
+  opacity: 0.85;
+}
+
+/* Fork #205 (@goatdancer4000-sudo / @droM4X / @Onkeyuk): per-user
+   "Hide shelf badges on covers" toggle on the book-organizer cog menu.
+   When the toggle is on, body carries `cover-hide-shelf-badges` and the
+   shelf-name + overflow-pill variants are hidden. The Read badge stays
+   visible (it's not a shelf and the toggle is scoped to shelf badges
+   specifically). */
+body.cover-hide-shelf-badges .cover-badge-shelf,
+body.cover-hide-shelf-badges .cover-badge-shelf-extra-pill {
+  display: none !important;
+}
+
+/* Cog dropdown styling for the "Cover Settings" header + checkbox-style
+   toggle item. The header is presentational (non-interactive) and gives
+   the dropdown a clear scope label; the toggle item carries the actual
+   `role="menuitemcheckbox"` semantics. */
+.book-organizer-settings-menu .book-organizer-settings-header {
+  padding: 6px 16px 4px;
+  color: #888;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+.book-organizer-settings-menu .book-organizer-settings-header > .glyphicon {
+  margin-right: 6px;
+  opacity: 0.7;
+}
+.book-organizer-settings-menu .book-organizer-settings-toggle-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 16px;
+}
+.book-organizer-settings-menu .book-organizer-settings-checkmark {
+  width: 1em;
+  text-align: center;
+}
+
+/* Hide caliBlur's old read badge in favor of our unified .cover-badges stack. */
+.book .cover .badge.read.glyphicon-ok {
+  display: none !important;
+}
+
+/* In multi-select mode, fade the badges so the selection overlay is the dominant visual. */
+body.book-organizer-select-mode .cover-badges {
+  opacity: 0.55;
+}
+
+/* Toast for bulk-operation feedback. Bottom-center, never overlaps the bar. */
+.book-organizer-flash {
+  position: fixed;
+  left: 50%;
+  bottom: 24px;
+  transform: translate(-50%, 16px);
+  z-index: 1060;
+  max-width: min(520px, calc(100vw - 24px));
+  padding: 10px 16px;
+  border-radius: 6px;
+  background: #1f2a36;
+  color: #fff;
+  font-weight: 500;
+  font-size: 14px;
+  line-height: 1.4;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+  border-left: 4px solid #5cb85c;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.2s ease, transform 0.2s ease;
+}
+
+.book-organizer-flash.is-visible {
+  opacity: 1;
+  transform: translate(-50%, 0);
+}
+
+.book-organizer-flash[data-kind="error"]   { border-left-color: #d9534f; }
+.book-organizer-flash[data-kind="info"]    { border-left-color: #5bc0de; }
+.book-organizer-flash[data-kind="success"] { border-left-color: #5cb85c; }
+
+@media (max-width: 600px) {
+  .book-organizer-flash { bottom: 16px; }
+}
+
+/* Confirmation modal for destructive actions. */
+.book-organizer-confirm-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.55);
+  z-index: 1050;
+  display: none;
+  align-items: center;
+  justify-content: center;
+}
+
+.book-organizer-confirm-backdrop.is-open {
+  display: flex;
+}
+
+.book-organizer-confirm {
+  background: #ffffff;
+  color: #202c35;
+  width: min(420px, 92vw);
+  border-radius: 6px;
+  box-shadow: 0 12px 36px rgba(0, 0, 0, 0.4);
+  overflow: hidden;
+}
+
+.book-organizer-confirm-header {
+  padding: 16px 20px 4px;
+  font-weight: 600;
+  font-size: 1.05rem;
+}
+
+.book-organizer-confirm-body {
+  padding: 4px 20px 16px;
+  font-size: 0.95rem;
+  line-height: 1.4;
+}
+
+.book-organizer-confirm-footer {
+  padding: 12px 20px;
+  background: #f5f7f9;
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+  border-top: 1px solid #e5e9ed;
+}

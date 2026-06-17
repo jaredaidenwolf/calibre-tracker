@@ -7,22 +7,14 @@
   --tracker-accent: #c9a96e;          /* Warm gold for reading highlights */
   --tracker-dnf: #e05252;             /* Red for Did Not Finish */
   --tracker-reading: #52a0e0;         /* Blue for currently reading */
-  --tracker-read: #52e07a;            /* Green for finished */
+  --tracker-read: #2c8b3a;            /* CWN's cover-badge-read green */
   --tracker-want: #a052e0;            /* Purple for want-to-read */
   --tracker-rereading: #c9a96e;       /* Warm gold for re-reading */
   --tracker-star-filled: #f5c518;     /* IMDb-style gold stars */
   --tracker-star-empty: #444;
   --tracker-progress-bg: #1e1e2e;
   --tracker-progress-fill: var(--tracker-accent);
-  --tracker-card-hover-border: rgba(201, 169, 110, 0.4);
 }
-
-/* ── Main content shell ──────────────────────────────────────────────────── */
-.tracker-main {
-  padding-top: 1.5rem;
-  padding-bottom: 3rem;
-}
-
 
 /* ── Reading-status badges ───────────────────────────────────────────────── */
 .badge-status {
@@ -35,11 +27,15 @@
   border-radius: 0.5em;
   white-space: nowrap;
 }
-.badge-want-to-read  { background-color: var(--tracker-want);      color: #fff; }
-.badge-reading       { background-color: var(--tracker-reading);   color: #fff; }
-.badge-read          { background-color: var(--tracker-read);      color: #000; }
-.badge-dnf           { background-color: var(--tracker-dnf);       color: #fff; }
-.badge-re-reading    { background-color: var(--tracker-rereading); color: #000; }
+/* ``!important`` lets these win over caliBlur_override's
+   ``.cover .badge { background-color: #cc7b19 }`` when the badge is
+   overlaid on a cover. Outside the cover the rule applies cleanly
+   without contest. */
+.badge-want-to-read  { background-color: var(--tracker-want)      !important; color: #fff !important; }
+.badge-reading       { background-color: var(--tracker-reading)   !important; color: #fff !important; }
+.badge-read          { background-color: var(--tracker-read)      !important; color: #fff !important; }
+.badge-dnf           { background-color: var(--tracker-dnf)       !important; color: #fff !important; }
+.badge-re-reading    { background-color: var(--tracker-rereading) !important; color: #000 !important; }
 
 /* ── Star rating ─────────────────────────────────────────────────────────── */
 .star-rating {
@@ -81,61 +77,52 @@
   transition: width 0.4s ease;
 }
 
-/* ── Book card (tracker variant) ─────────────────────────────────────────── */
-.book-card-tracker {
-  position: relative;
-  border: 1px solid transparent;
-  border-radius: 6px;
-  padding: 0.5rem;
-  transition: border-color 0.2s ease, transform 0.15s ease;
-}
-.book-card-tracker:hover {
-  border-color: var(--tracker-card-hover-border);
-  transform: translateY(-2px);
-}
-.book-card-tracker .book-cover {
-  position: relative;
-  aspect-ratio: 2 / 3;
-  background: #1a1a26;
-  border-radius: 4px;
-  overflow: hidden;
-}
-.book-card-tracker .book-cover img {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-  display: block;
-}
-.book-card-tracker .book-cover .cover-fallback {
-  position: absolute;
-  inset: 0;
+/* ── Book card ───────────────────────────────────────────────────────────── */
+/*
+   Markup mirrors CWN's index.html exactly: the Bootstrap column carries
+   ``book session`` + ``id="books"``, and the children (``.cover``,
+   ``.meta``, ``.cover > a.book-cover-link > .img > img``, ``.meta >
+   .title`` / ``.author``) follow CWN verbatim. CaliBlur's vendored CSS
+   handles every layout, hover, and typography rule — including
+   responsive grid behavior (180px cards with ``flex-wrap: wrap``
+   gives 2 / 4 / 5-6 across at xs / sm / lg naturally).
+
+   The tracker-only additions below are: a no-cover fallback (CWN
+   always has a cover), the status-badge overlay color/typography on
+   top of caliBlur_override's ``.cover .badge`` rule, and the
+   star-rating block under the author. */
+
+/* No-cover fallback (when the Calibre book has no cover.jpg). Sized to
+   the same 2:3 aspect ratio caliBlur expects for covers so the grid
+   row stays even. */
+.cover .cover-fallback {
   display: flex;
   align-items: center;
   justify-content: center;
+  aspect-ratio: 2 / 3;
+  background: #1a1a26;
+  color: rgba(255, 255, 255, 0.55);
+  font-size: 0.85rem;
   text-align: center;
-  font-size: 0.8rem;
-  opacity: 0.6;
-  padding: 0.5rem;
+  padding: 0.75rem;
+  box-shadow: 0 0 4px rgba(0, 0, 0, 0.45);
 }
-.book-card-tracker .book-card-meta {
-  margin-top: 0.5rem;
+
+/* Status label tweak inside the cover badge — keep CWN's pill shape
+   (book_organizer.css) and just make the label small + lowercase-cased
+   to match the "Read" badge convention. Color is supplied by the
+   ``.badge-{status}`` modifier (see ``.badge-*`` rules above) which
+   carries !important and overrides ``.cover-badge``'s default bg. */
+.cover-badge-status-label {
+  letter-spacing: 0.3px;
 }
-.book-card-tracker .book-card-title {
-  font-size: 0.95rem;
-  font-weight: 600;
-  margin: 0 0 0.15rem;
-  line-height: 1.2;
+
+/* Star rating below the author line (tracker-only; no CWN analogue). */
+.tracker-card-rating {
+  margin-top: 0.25rem;
 }
-.book-card-tracker .book-card-author {
-  font-size: 0.8rem;
-  opacity: 0.7;
-  margin: 0;
-}
-.book-card-tracker .badge-status {
-  position: absolute;
-  top: 0.75rem;
-  left: 0.75rem;
-  z-index: 2;
+.tracker-card-rating .star-rating {
+  font-size: 0.85rem;
 }
 
 /* ── Quote block ─────────────────────────────────────────────────────────── */
@@ -183,15 +170,18 @@ body.blur .discover .row {
   }
 }
 
-/* Stats / toolbar bar: styled like CWN's ``.shelf-actions`` —
-   translucent dark card, inset from the column gutter, padded.
-   On per-status pages this slot will hold the sort / multi-select
-   toolbar in a later phase; on the dashboard it carries the
-   quick-stats strip. */
+/* Stats / toolbar bar: mirrors CWN's ``.shelf-actions`` exactly —
+   ``padding: 1.5rem``, ``background: #202c358c`` (= rgba(32,44,53,.55)),
+   ``border-radius: 4px``. Margins are baked-in:
+       L = 20 (.discover left padding) + 15 (.shelf-actions margin-inline)
+       R = 10 (.discover right padding) + 15
+   so the bar lines up with the first/last book columns of the grid
+   below. The dashboard puts the stats strip in this slot; per-status
+   pages will host the Phase 8 sort / multi-select bar. */
 .tracker-stats-strip,
 .tracker-toolbar {
-  margin: 1.5rem 10px 2rem 20px;
-  padding: 1.25rem 1.5rem;
+  margin: 0 35px 20px 35px;
+  padding: 1.5rem;
   background: rgba(32, 44, 53, 0.55);
   border-radius: 4px;
 }
@@ -211,12 +201,22 @@ body.blur .discover .row {
   font-weight: 400;
 }
 
-/* Per-status sections on the dashboard. NOT .discover (see template
-   note). Margins match caliBlur's ``.discover`` padding so the
-   dashboard's inline sections align with the .discover-wrapped page
-   title and any future toolbar. */
+/* Per-status sections on the dashboard. NOT a ``.discover`` (see
+   template note about banner pile-up). Padding mirrors caliBlur's
+   ``.discover { padding: 0 10px 0 20px }`` exactly so book columns
+   line up with both the stats strip above and CWN's grid. */
 .tracker-section {
-  margin: 0 10px 2.5rem 20px;
+  padding: 0 35px 0 35px;
+  margin: 0 0 40px 0;
+}
+
+/* CaliBlur applies ``.discover .row { margin: 0 auto !important }``
+   so Bootstrap's default ``-15px`` row gutter is stripped on CWN
+   pages. Our sections aren't ``.discover``, so apply the same fix
+   here — otherwise the first book sits 15px left of where CWN
+   would put it. */
+.tracker-section > .row.display-flex {
+  margin: 0 auto !important;
 }
 .tracker-section-header {
   display: flex;
@@ -234,19 +234,22 @@ body.blur .discover .row {
   color: hsla(0, 0%, 100%, 0.85);
 }
 .tracker-section-count {
-  margin-left: 0.5em;
-  opacity: 0.5;
-  font-size: 1rem;
-  font-weight: 400;
+  margin-left: 0.4em;
+  font-size: 1.4rem;
+  font-weight: 600;
+  color: #fff;
+  opacity: 0.85;
 }
 .tracker-section-viewall {
-  font-size: 1rem;
+  font-size: 1.15rem;
   font-weight: 400;
-  opacity: 0.75;
+  color: #fff;
+  opacity: 0.85;
   white-space: nowrap;
 }
 .tracker-section-viewall:hover {
   opacity: 1;
+  text-decoration: none;
 }
 .tracker-empty {
   opacity: 0.5;
@@ -254,9 +257,6 @@ body.blur .discover .row {
   margin: 0;
 }
 
-.book-card-tombstone .book-cover {
-  border: 1px dashed rgba(255, 255, 255, 0.15);
-}
 
 /* ── Book detail ─────────────────────────────────────────────────────────── */
 .book-detail-grid {

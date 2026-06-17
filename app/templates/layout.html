@@ -31,6 +31,9 @@
     <link rel="stylesheet" href="{{ url_for('static', filename='css/cwa/caliBlur.css') }}">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/cwa/caliBlur_override.css') }}">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/cwa/cwa.css') }}">
+    {# Cover-badges + organizer bar styles. Vendored alongside the other
+       caliBlur CSS; the organizer toolbar itself is Phase 8 work. #}
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/cwa/book_organizer.css') }}">
 
     {# Override point for base.html (tracker.css) or per-page sheets. #}
     {% block head_extras %}{% endblock %}

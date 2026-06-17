@@ -13,26 +13,28 @@
     {% if entries %}
       <div class="row display-flex">
         {% for entry in entries %}
-          <div class="col-xs-6 col-sm-3 tracker-book-col">
-            {% if entry.book %}
+          {% if entry.book %}
+            <div class="col-xs-6 col-sm-3 col-lg-2 book session" id="books">
               {% set book = entry.book %}
               {% set status = entry.log.status %}
               {% set rating = entry.log.rating %}
               {% include 'components/book_card.html' %}
-            {% else %}
-              <div class="book-card-tracker book-card-tombstone">
-                <div class="book-cover">
-                  <div class="cover-fallback">
-                    <span>Book #{{ entry.log.calibre_book_id }}<br><em>(no longer in library)</em></span>
-                  </div>
-                </div>
-                <div class="book-card-meta">
-                  <p class="book-card-title">Missing book</p>
-                  <p class="book-card-author">{{ entry.log.status | replace('_', ' ') }}</p>
-                </div>
+            </div>
+          {% else %}
+            <div class="col-xs-6 col-sm-3 col-lg-2 book session tracker-tombstone" id="books">
+              <div class="cover">
+                <span class="img">
+                  <span class="cover-fallback">
+                    Book #{{ entry.log.calibre_book_id }}<br><em>(no longer in library)</em>
+                  </span>
+                </span>
               </div>
-            {% endif %}
-          </div>
+              <div class="meta">
+                <p class="title">Missing book</p>
+                <p class="author">{{ entry.log.status | replace('_', ' ') }}</p>
+              </div>
+            </div>
+          {% endif %}
         {% endfor %}
       </div>
     {% else %}

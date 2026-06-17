@@ -133,9 +133,9 @@ def _quick_stats(user_id: int) -> dict:
 # ── Dashboard ───────────────────────────────────────────────────────────────
 
 
-DASHBOARD_SECTION_LIMIT = 6
-"""Each dashboard section shows up to this many books. The full list per
-status lives at ``tracker.status_list``."""
+DASHBOARD_SECTION_LIMIT = 5
+"""Each dashboard section shows up to this many books in a single row.
+The full list per status lives at ``tracker.status_list``."""
 
 
 STATUS_LABELS: dict[str, str] = {
