@@ -199,6 +199,13 @@ CREATE TABLE identifiers (
     val  TEXT NOT NULL COLLATE NOCASE,
     UNIQUE(book, type)
 );
+
+CREATE TABLE comments (
+    id   INTEGER PRIMARY KEY,
+    book INTEGER NOT NULL,
+    text TEXT NOT NULL,
+    UNIQUE(book)
+);
 """
 
 

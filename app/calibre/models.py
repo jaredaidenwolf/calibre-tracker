@@ -87,6 +87,9 @@ class CalibreBook(CalibreBase):
     identifiers: Mapped[list[CalibreIdentifier]] = relationship(
         "CalibreIdentifier", viewonly=True
     )
+    comments: Mapped[list[CalibreComment]] = relationship(
+        "CalibreComment", viewonly=True
+    )
 
 
 class CalibreAuthor(CalibreBase):
@@ -127,6 +130,20 @@ class CalibreIdentifier(CalibreBase):
     book: Mapped[int] = mapped_column(Integer, ForeignKey("books.id"), nullable=False)
     type: Mapped[str] = mapped_column(Text, nullable=False)
     val: Mapped[str] = mapped_column(Text, nullable=False)
+
+
+class CalibreComment(CalibreBase):
+    """A row in Calibre's ``comments`` table — the book's description.
+
+    Calibre stores the comment text as HTML (often wrapped in
+    ``<div><p>…</p></div>``). Each book has at most one row here.
+    """
+
+    __tablename__ = "comments"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    book: Mapped[int] = mapped_column(Integer, ForeignKey("books.id"), nullable=False)
+    text: Mapped[str] = mapped_column(Text, nullable=False)
 
 
 def _make_engine(db_path: str) -> Engine:

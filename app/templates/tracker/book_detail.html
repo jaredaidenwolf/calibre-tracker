@@ -4,125 +4,190 @@
 {% block body_class %}tracker-book{% endblock %}
 
 {% block body %}
-  <div class="book-detail-grid">
-    <div class="book-detail-cover-wrap">
-      <div class="book-detail-cover">
-        {% if book.has_cover %}
-          <img src="{{ url_for('tracker.cover', book_id=book.id) }}" alt="Cover of {{ book.title }}">
-        {% else %}
-          <div class="cover-fallback">{{ book.title }}</div>
-        {% endif %}
-      </div>
-      {% if log and log.status %}
-        <p style="margin-top: 0.75rem;">
-          <span class="badge-status badge-{{ log.status | replace('_', '-') }}">
-            {{ log.status | replace('_', ' ') }}
-          </span>
-        </p>
-      {% endif %}
-    </div>
+{#
+  Mirrors CWN's detail.html scaffold:
+    .discover > h2 > .single
+      > .book-detail-page
+        > .book-detail-card
+          > .book-detail-main
+            > .book-detail-cover
+            > .book-detail-meta
+                > .book-detail-actions (toolbar)
+                > h2#title + .author
+                > .book-metadata (.meta-chip stack)
+                > tracker reading-log form
+                > tracker rereads list
+          > .book-detail-description (Calibre comments)
+          > tracker quotes/notes placeholder
 
-    <div class="book-detail-meta">
-      <h1>{{ book.title }}</h1>
-      {% if book.authors %}
-        <p class="book-detail-author">by {{ book.authors | join(', ') }}</p>
-      {% endif %}
-
-      <dl>
-        {% if book.series %}
-          <dt>Series</dt>
-          <dd>{{ book.series }}{% if book.series_index %} #{{ book.series_index }}{% endif %}</dd>
-        {% endif %}
-        {% if book.pubdate %}
-          <dt>Published</dt>
-          <dd>{{ book.pubdate[:10] }}</dd>
-        {% endif %}
-        {% if book.isbn %}
-          <dt>ISBN</dt>
-          <dd>{{ book.isbn }}</dd>
-        {% endif %}
-        {% if book.tags %}
-          <dt>Tags</dt>
-          <dd class="book-detail-tags">
-            {% for tag in book.tags %}<span class="label label-default">{{ tag }}</span>{% endfor %}
-          </dd>
-        {% endif %}
-      </dl>
-
-      <form class="log-form" method="post" action="{{ url_for('tracker.book_detail_submit', book_id=book.id) }}">
-        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-
-        <div class="form-group">
-          <label for="status">Status</label>
-          <select name="status" id="status" class="form-control">
-            {% set current_status = log.status if log else '' %}
-            <option value="" {% if not current_status %}selected{% endif %}>— pick a status —</option>
-            <option value="want_to_read" {% if current_status == 'want_to_read' %}selected{% endif %}>Want to read</option>
-            <option value="reading"      {% if current_status == 'reading' %}selected{% endif %}>Currently reading</option>
-            <option value="read"         {% if current_status == 'read' %}selected{% endif %}>Read</option>
-            <option value="dnf"          {% if current_status == 'dnf' %}selected{% endif %}>Did not finish</option>
-            <option value="re_reading"   {% if current_status == 're_reading' %}selected{% endif %}>Re-reading</option>
-          </select>
-        </div>
-
-        <div class="row">
-          <div class="form-group col-sm-6">
-            <label for="started_at">Started</label>
-            <input type="date" name="started_at" id="started_at" class="form-control"
-                   value="{{ log.started_at.strftime('%Y-%m-%d') if log and log.started_at else '' }}">
+  CSS lives in tracker.css under "Book detail page" — copied from CWN's
+  inline ``{% block header %}`` styles with the admin/upload/format-
+  conversion bits stripped.
+#}
+<div class="discover" style="margin: 0 !important;">
+  <h2>{{ book.title }}</h2>
+  <div class="single">
+    <div class="book-detail-page">
+      <div class="book-detail-card">
+        <div class="book-detail-main">
+          <div class="book-detail-cover">
+            {% if book.has_cover %}
+              <img id="detailcover" title="{{ book.title }}"
+                   src="{{ url_for('tracker.cover', book_id=book.id) }}"
+                   alt="Cover of {{ book.title }}">
+            {% else %}
+              <div class="cover-fallback">{{ book.title }}</div>
+            {% endif %}
           </div>
-          <div class="form-group col-sm-6">
-            <label for="finished_at">Finished</label>
-            <input type="date" name="finished_at" id="finished_at" class="form-control"
-                   value="{{ log.finished_at.strftime('%Y-%m-%d') if log and log.finished_at else '' }}">
+
+          <div class="book-detail-meta">
+            {% if log %}
+              <div class="book-detail-actions">
+                <div class="book-action-bar" role="toolbar">
+                  <div class="action-group">
+                    <form method="post"
+                          action="{{ url_for('tracker.book_detail_submit', book_id=book.id) }}"
+                          class="tracker-inline-action-form"
+                          onsubmit="return confirm('Remove this book from your tracker?\n\nThis deletes your reading log, dates, rating, review, and any rereads for this book. The book stays in your Calibre library.');">
+                      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                      <button type="submit" name="action" value="delete"
+                              class="btn btn-danger action-icon-btn"
+                              title="Remove from tracker"
+                              aria-label="Remove from tracker">
+                        <span class="glyphicon glyphicon-trash"></span>
+                      </button>
+                    </form>
+                  </div>
+                </div>
+              </div>
+            {% endif %}
+
+            <h2 id="title">{{ book.title }}</h2>
+            {% if book.authors %}
+              <p class="author">{{ book.authors | join(', ') }}</p>
+            {% endif %}
+
+            <div class="book-metadata">
+              {% if log and log.status %}
+                <div class="status meta-chip">
+                  <span class="meta-label">Status:</span>
+                  <span class="meta-value">
+                    <span class="meta-pill badge-{{ log.status | replace('_', '-') }}">
+                      {{ log.status | replace('_', ' ') }}
+                    </span>
+                  </span>
+                </div>
+              {% endif %}
+              {% if book.series %}
+                <div class="series meta-chip">
+                  <span class="meta-label">Series:</span>
+                  <span class="meta-value">{{ book.series }}{% if book.series_index %} #{{ book.series_index }}{% endif %}</span>
+                </div>
+              {% endif %}
+              {% if book.pubdate %}
+                <div class="pubdate meta-chip">
+                  <span class="meta-label">Published:</span>
+                  <span class="meta-value">{{ book.pubdate[:10] }}</span>
+                </div>
+              {% endif %}
+              {% if book.isbn %}
+                <div class="isbn meta-chip">
+                  <span class="meta-label">ISBN:</span>
+                  <span class="meta-value">{{ book.isbn }}</span>
+                </div>
+              {% endif %}
+              {% if book.tags %}
+                <div class="tags meta-chip">
+                  <span class="glyphicon glyphicon-tags" aria-hidden="true"></span>
+                  {% for tag in book.tags %}
+                    <span class="meta-pill">{{ tag }}</span>
+                  {% endfor %}
+                </div>
+              {% endif %}
+            </div>
+
+            <form class="log-form" method="post"
+                  action="{{ url_for('tracker.book_detail_submit', book_id=book.id) }}">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+
+              <div class="form-group">
+                <label for="log-status">Status</label>
+                <select name="status" id="log-status" class="form-control">
+                  {% set current_status = log.status if log else '' %}
+                  <option value="" {% if not current_status %}selected{% endif %}>— pick a status —</option>
+                  <option value="want_to_read" {% if current_status == 'want_to_read' %}selected{% endif %}>Want to read</option>
+                  <option value="reading"      {% if current_status == 'reading' %}selected{% endif %}>Currently reading</option>
+                  <option value="read"         {% if current_status == 'read' %}selected{% endif %}>Read</option>
+                  <option value="dnf"          {% if current_status == 'dnf' %}selected{% endif %}>Did not finish</option>
+                  <option value="re_reading"   {% if current_status == 're_reading' %}selected{% endif %}>Re-reading</option>
+                </select>
+              </div>
+
+              <div class="row">
+                <div class="form-group col-sm-6">
+                  <label for="started_at">Started</label>
+                  <input type="date" name="started_at" id="started_at" class="form-control"
+                         value="{{ log.started_at.strftime('%Y-%m-%d') if log and log.started_at else '' }}">
+                </div>
+                <div class="form-group col-sm-6">
+                  <label for="finished_at">Finished</label>
+                  <input type="date" name="finished_at" id="finished_at" class="form-control"
+                         value="{{ log.finished_at.strftime('%Y-%m-%d') if log and log.finished_at else '' }}">
+                </div>
+              </div>
+
+              <div class="form-group">
+                <label for="rating">Rating (1–10, half-stars)</label>
+                <input type="number" name="rating" id="rating" min="1" max="10" step="1" class="form-control"
+                       value="{{ log.rating if log and log.rating else '' }}">
+                <div class="log-form-stars">
+                  {% set rating = log.rating if log else None %}
+                  {% set static = True %}
+                  {% include 'components/rating_stars.html' %}
+                </div>
+              </div>
+
+              <div class="form-group">
+                <label for="review">Review / thoughts</label>
+                <textarea name="review" id="review" rows="5" class="form-control">{{ log.review if log and log.review else '' }}</textarea>
+              </div>
+
+              <div class="form-actions">
+                <button type="submit" class="btn btn-primary">Save</button>
+              </div>
+            </form>
+
+            {% if rereads %}
+              <div class="tracker-rereads">
+                <h3>Rereads</h3>
+                <ul class="reread-list">
+                  {% for r in rereads %}
+                    <li>
+                      <strong>Reread #{{ r.reread_count }}</strong>
+                      — status: {{ r.status | replace('_', ' ') }}
+                      {% if r.rating %} · rated {{ r.rating }}/10{% endif %}
+                      {% if r.finished_at %} · finished {{ r.finished_at.strftime('%Y-%m-%d') }}{% endif %}
+                    </li>
+                  {% endfor %}
+                </ul>
+              </div>
+            {% endif %}
           </div>
         </div>
 
-        <div class="form-group">
-          <label for="rating">Rating (1–10, half-stars)</label>
-          <input type="number" name="rating" id="rating" min="1" max="10" step="1" class="form-control"
-                 value="{{ log.rating if log and log.rating else '' }}">
-          <div style="margin-top: 0.4rem;">
-            {% set rating = log.rating if log else None %}
-            {% set static = True %}
-            {% include 'components/rating_stars.html' %}
+        {% if book.description %}
+          <div class="book-detail-description">
+            <h3>Description</h3>
+            {{ book.description|safe }}
           </div>
+        {% endif %}
+
+        <div class="book-detail-description tracker-quotes-placeholder">
+          <h3>Quotes &amp; Notes</h3>
+          <p class="tracker-empty">Coming in Phase 7 — quotes from this book, plus your own notes.</p>
         </div>
-
-        <div class="form-group">
-          <label for="review">Review / thoughts</label>
-          <textarea name="review" id="review" rows="5" class="form-control">{{ log.review if log and log.review else '' }}</textarea>
-        </div>
-
-        <div class="form-actions">
-          <button type="submit" class="btn btn-primary">Save</button>
-          {% if log %}
-            <button type="submit" name="action" value="delete" class="btn btn-danger delete-btn"
-                    onclick="return confirm('Remove this book from your reading log? (Reread history is kept.)');">
-              Remove from log
-            </button>
-          {% endif %}
-        </div>
-      </form>
-
-      {% if rereads %}
-        <h3 style="margin-top: 2rem;">Rereads</h3>
-        <ul class="reread-list">
-          {% for r in rereads %}
-            <li>
-              <strong>Reread #{{ r.reread_count }}</strong>
-              — status: {{ r.status | replace('_', ' ') }}
-              {% if r.rating %} · rated {{ r.rating }}/10{% endif %}
-              {% if r.finished_at %} · finished {{ r.finished_at.strftime('%Y-%m-%d') }}{% endif %}
-            </li>
-          {% endfor %}
-        </ul>
-      {% endif %}
-
-      <div class="discover" style="margin-top: 2.5rem;">
-        <h3>Quotes &amp; Notes</h3>
-        <p class="tracker-empty">Coming in Phase 7 — quotes from this book, plus your own notes.</p>
       </div>
     </div>
   </div>
+</div>
 {% endblock %}
