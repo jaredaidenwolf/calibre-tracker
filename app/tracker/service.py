@@ -3,6 +3,18 @@
 Routes call into this module so the rules around status transitions,
 rereads, validation, and the one-time CWN import live in one place that
 can be tested without spinning up the request layer.
+
+Each :class:`ReadingLog` row represents *one read attempt*. The UI form
+on ``/book/<id>/edit`` always inserts a new row (each save is a fresh
+attempt) — the per-row edit icon on the reading-activity table is what
+amends an existing attempt. ``current_status_for`` returns the
+most-recently-created row's status (older edits never reshuffle "what
+am I reading now").
+
+The is_reread / reread_count columns are kept for backward compat with
+the JSON API, but they no longer drive status queries — the first row
+gets ``is_reread=False`` and subsequent rows get ``is_reread=True``
+purely as a record of insertion order.
 """
 
 from __future__ import annotations
@@ -136,7 +148,7 @@ def upsert_reading_log(
         log = ReadingLog(
             user_id=user.id,
             calibre_book_id=calibre_book_id,
-            status=payload.status or "re_reading",
+            status=payload.status or "reading",
             started_at=payload.started_at,
             finished_at=payload.finished_at,
             rating=payload.rating,
@@ -188,21 +200,100 @@ def quick_status_change(
     return upsert_reading_log(user, calibre_book_id, {"status": status}, now=now)
 
 
-def delete_reading_log(user: User, calibre_book_id: int) -> bool:
-    """Soft-friendly delete: removes the canonical (non-reread) row.
+def create_read_attempt(
+    user: User,
+    calibre_book_id: int,
+    data: dict,
+    *,
+    now: datetime | None = None,
+) -> ReadingLog:
+    """Insert a new read-attempt row — always a new row, never an update.
 
-    Reread rows are deliberately kept; ``current_status_for`` ignores
-    them anyway, and they preserve the history of past reads. Returns
-    ``True`` if a row was deleted.
+    Used by the UI form on ``/book/<id>/edit``. Every save the user makes
+    on that page is a fresh attempt with its own dates / rating / status;
+    edits to past attempts go through :func:`update_read_attempt`.
+
+    First row for a book/user gets ``is_reread=False, reread_count=0``;
+    subsequent rows get ``is_reread=True`` and a 1-indexed reread_count
+    so the JSON API and any historical SQL can still distinguish "first
+    read" from "reread N" if needed.
     """
-    log = (
+    payload = validate_payload(data)
+    existing_count = (
         db.session.query(ReadingLog)
-        .filter_by(user_id=user.id, calibre_book_id=calibre_book_id, is_reread=False)
-        .first()
+        .filter_by(user_id=user.id, calibre_book_id=calibre_book_id)
+        .count()
     )
-    if log is None:
+    log = ReadingLog(
+        user_id=user.id,
+        calibre_book_id=calibre_book_id,
+        # No explicit fallback for second+ attempts — every attempt is a
+        # fresh "Currently reading" cycle now, and the form requires the
+        # user to pick a status anyway.
+        status=payload.status or "want_to_read",
+        started_at=payload.started_at,
+        finished_at=payload.finished_at,
+        rating=payload.rating,
+        review=payload.review,
+        is_reread=existing_count > 0,
+        reread_count=existing_count,
+    )
+    db.session.add(log)
+    _apply_auto_transitions(log, now=now)
+    db.session.commit()
+    return log
+
+
+def update_read_attempt(
+    user: User,
+    log_id: int,
+    data: dict,
+    *,
+    now: datetime | None = None,
+) -> ReadingLog:
+    """Update an existing read-attempt row by primary key.
+
+    Authorises by ``user_id`` — raises if the row doesn't belong to the
+    caller (or doesn't exist). Used by the per-row edit pencil on the
+    reading-activity table.
+    """
+    log = db.session.get(ReadingLog, log_id)
+    if log is None or log.user_id != user.id:
+        raise ReadingLogValidationError("read entry not found")
+
+    payload = validate_payload(data)
+    if payload.status is not None:
+        log.status = payload.status
+    if payload.started_at is not None:
+        log.started_at = payload.started_at
+    if payload.finished_at is not None:
+        log.finished_at = payload.finished_at
+    if payload.rating is not None:
+        log.rating = payload.rating
+    if payload.review is not None:
+        log.review = payload.review
+
+    _apply_auto_transitions(log, now=now)
+    db.session.commit()
+    return log
+
+
+def delete_reading_log(user: User, calibre_book_id: int) -> bool:
+    """Remove a book from the tracker — drops every read attempt for it.
+
+    Used by the trash icon on the detail page, which reads as "remove
+    this book from my tracker" rather than "remove one read attempt".
+    Returns ``True`` if at least one row was deleted.
+    """
+    rows = (
+        db.session.query(ReadingLog)
+        .filter_by(user_id=user.id, calibre_book_id=calibre_book_id)
+        .all()
+    )
+    if not rows:
         return False
-    db.session.delete(log)
+    for row in rows:
+        db.session.delete(row)
     db.session.commit()
     return True
 

@@ -162,7 +162,7 @@ def test_reread_inserts_new_row(alice):
     second = upsert_reading_log(
         alice,
         1,
-        {"status": "re_reading", "is_reread": True, "rating": 10},
+        {"status": "reading", "is_reread": True, "rating": 10},
     )
     assert first.id != second.id
     assert second.is_reread is True
@@ -179,8 +179,8 @@ def test_reread_inserts_new_row(alice):
 
 def test_reread_count_increments(alice):
     upsert_reading_log(alice, 1, {"status": "read"})
-    r1 = upsert_reading_log(alice, 1, {"status": "re_reading", "is_reread": True})
-    r2 = upsert_reading_log(alice, 1, {"status": "re_reading", "is_reread": True})
+    r1 = upsert_reading_log(alice, 1, {"status": "reading", "is_reread": True})
+    r2 = upsert_reading_log(alice, 1, {"status": "reading", "is_reread": True})
     assert r1.reread_count == 1
     assert r2.reread_count == 2
 
@@ -195,12 +195,16 @@ def test_delete_canonical_row(alice):
     assert delete_reading_log(alice, 1) is False
 
 
-def test_delete_preserves_rereads(alice):
+def test_delete_drops_every_attempt(alice):
+    """Removing a book from the tracker wipes every read attempt for it,
+    not just the canonical row. The trash icon reads as 'remove this
+    book from my tracker', so leaving orphan reread rows would be
+    surprising."""
     upsert_reading_log(alice, 1, {"status": "read"})
-    upsert_reading_log(alice, 1, {"status": "re_reading", "is_reread": True})
+    upsert_reading_log(alice, 1, {"status": "reading", "is_reread": True})
+    assert ReadingLog.query.filter_by(user_id=alice.id, calibre_book_id=1).count() == 2
     delete_reading_log(alice, 1)
-    rereads = ReadingLog.query.filter_by(user_id=alice.id, is_reread=True).all()
-    assert len(rereads) == 1
+    assert ReadingLog.query.filter_by(user_id=alice.id, calibre_book_id=1).count() == 0
 
 
 # ── Cross-user isolation ────────────────────────────────────────────────────
@@ -235,7 +239,7 @@ def test_post_log_rejects_invalid_payload(alice_client):
 
 def test_get_log_returns_current_and_rereads(alice_client):
     alice_client.post("/book/1/log", json={"status": "read", "rating": 9})
-    alice_client.post("/book/1/log", json={"status": "re_reading", "is_reread": True})
+    alice_client.post("/book/1/log", json={"status": "reading", "is_reread": True})
     resp = alice_client.get("/book/1/log")
     body = resp.get_json()
     assert body["status"] == "read"

@@ -58,7 +58,7 @@ REQUIRED_INDEXES: frozenset[str] = frozenset(
 
 
 def test_reading_statuses_match_doc():
-    expected = frozenset({"want_to_read", "reading", "read", "dnf", "re_reading"})
+    expected = frozenset({"want_to_read", "reading", "read", "dnf"})
     assert expected == READING_STATUSES
 
 
@@ -126,18 +126,19 @@ def test_current_status_for(app_context):
     db.session.commit()
     assert ReadingLog.current_status_for(user.id, 1) == "read"
 
-    # A reread row must NOT clobber the canonical status.
+    # A NEWER attempt's status becomes the current one — every row is
+    # a read attempt and the latest wins, regardless of is_reread.
     db.session.add(
         ReadingLog(
             user_id=user.id,
             calibre_book_id=1,
-            status="re_reading",
+            status="reading",
             is_reread=True,
             reread_count=1,
         )
     )
     db.session.commit()
-    assert ReadingLog.current_status_for(user.id, 1) == "read"
+    assert ReadingLog.current_status_for(user.id, 1) == "reading"
 
 
 def test_other_models_persist(app_context):

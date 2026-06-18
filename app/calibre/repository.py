@@ -19,6 +19,8 @@ from sqlalchemy.orm import joinedload
 
 from .models import CalibreAuthor, CalibreBook, CalibreIdentifier, read_session
 
+_COMMENT_HTML_TAG = "<"
+
 
 @dataclass(frozen=True)
 class BookDTO:
@@ -36,6 +38,9 @@ class BookDTO:
     path: str
     has_cover: bool
     cover_path: str | None
+    description: str | None = None
+    """Calibre comments — typically HTML. Render with ``|safe`` in
+    templates; the source is the user's own metadata.db."""
     extra: dict[str, object] = field(default_factory=dict)
 
 
@@ -54,6 +59,13 @@ def _to_dto(book: CalibreBook, library_root: str) -> BookDTO:
         None,
     )
 
+    description: str | None = book.comments[0].text if book.comments else None
+    if description is not None and _COMMENT_HTML_TAG not in description:
+        # Plain-text descriptions get a single <p> wrapper so the same
+        # |safe template can render either flavour without forcing the
+        # whitespace to collapse.
+        description = f"<p>{description}</p>"
+
     return BookDTO(
         id=book.id,
         title=book.title,
@@ -67,6 +79,7 @@ def _to_dto(book: CalibreBook, library_root: str) -> BookDTO:
         path=book.path,
         has_cover=bool(book.has_cover),
         cover_path=cover_path,
+        description=description,
     )
 
 
@@ -90,6 +103,7 @@ def get_book(book_id: int) -> BookDTO | None:
                 joinedload(CalibreBook.tags),
                 joinedload(CalibreBook.series),
                 joinedload(CalibreBook.identifiers),
+                joinedload(CalibreBook.comments),
             ),
         )
         if book is None:
@@ -115,6 +129,7 @@ def get_books(book_ids: Iterable[int]) -> list[BookDTO]:
                 joinedload(CalibreBook.tags),
                 joinedload(CalibreBook.series),
                 joinedload(CalibreBook.identifiers),
+                joinedload(CalibreBook.comments),
             )
         )
         rows = session.execute(stmt).unique().scalars().all()
@@ -153,6 +168,7 @@ def search_books(query: str, limit: int = 50) -> list[BookDTO]:
                 joinedload(CalibreBook.tags),
                 joinedload(CalibreBook.series),
                 joinedload(CalibreBook.identifiers),
+                joinedload(CalibreBook.comments),
             )
             .order_by(CalibreBook.sort, CalibreBook.title)
             .limit(max(1, int(limit)))

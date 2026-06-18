@@ -32,7 +32,7 @@ from ..extensions import db
 
 #: Allowed values for :attr:`ReadingLog.status`.
 READING_STATUSES: frozenset[str] = frozenset(
-    {"want_to_read", "reading", "read", "dnf", "re_reading"}
+    {"want_to_read", "reading", "read", "dnf"}
 )
 
 #: Allowed values for :attr:`Note.note_type`.
@@ -136,14 +136,18 @@ class ReadingLog(db.Model):
     def current_status_for(cls, user_id: int, calibre_book_id: int) -> str | None:
         """Return the user's current status for a book.
 
-        "Current" = the most-recently-updated non-reread row. Rereads
-        are explicitly excluded so they don't mask the original read.
-        Returns ``None`` when the user has no log entry for the book.
+        "Current" = the most-recently-created row, regardless of the
+        ``is_reread`` flag. Each row represents one read attempt; the
+        latest attempt's status is what the user is currently doing
+        with the book. Ordering by ``created_at`` (not ``updated_at``)
+        means amending an old attempt never reshuffles "what am I
+        reading now". Returns ``None`` when the user has no log entry
+        for the book.
         """
         row = (
             db.session.query(cls)
-            .filter_by(user_id=user_id, calibre_book_id=calibre_book_id, is_reread=False)
-            .order_by(cls.updated_at.desc())
+            .filter_by(user_id=user_id, calibre_book_id=calibre_book_id)
+            .order_by(cls.created_at.desc(), cls.id.desc())
             .first()
         )
         return row.status if row else None

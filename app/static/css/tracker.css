@@ -9,7 +9,6 @@
   --tracker-reading: #52a0e0;         /* Blue for currently reading */
   --tracker-read: #2c8b3a;            /* CWN's cover-badge-read green */
   --tracker-want: #a052e0;            /* Purple for want-to-read */
-  --tracker-rereading: #c9a96e;       /* Warm gold for re-reading */
   --tracker-star-filled: #f5c518;     /* IMDb-style gold stars */
   --tracker-star-empty: #444;
   --tracker-progress-bg: #1e1e2e;
@@ -35,13 +34,12 @@
 .badge-reading       { background-color: var(--tracker-reading)   !important; color: #fff !important; }
 .badge-read          { background-color: var(--tracker-read)      !important; color: #fff !important; }
 .badge-dnf           { background-color: var(--tracker-dnf)       !important; color: #fff !important; }
-.badge-re-reading    { background-color: var(--tracker-rereading) !important; color: #000 !important; }
 
 /* ── Star rating ─────────────────────────────────────────────────────────── */
 .star-rating {
   display: inline-flex;
   gap: 2px;
-  font-size: 1.1rem;
+  font-size: 1.5rem;
 }
 .star-rating .star {
   color: var(--tracker-star-empty);
@@ -115,6 +113,20 @@
    carries !important and overrides ``.cover-badge``'s default bg. */
 .cover-badge-status-label {
   letter-spacing: 0.3px;
+}
+
+/* Cover hover icon — CWN's caliBlur.css renders an open-book glyph
+   (``\e352`` from "Glyphicons Regular") in the center of the cover on
+   hover. We surface book detail instead of "open this book" so an info
+   glyph reads more accurately. Override the codepoint + font; positioning,
+   sizing, and animation stay inherited from caliBlur.css. */
+#books > .cover > a:before,
+#books .cover > a:before,
+#books_rand > .cover > a:before,
+#books_rand .cover > a:before,
+.book.isotope-item > .cover > a:before {
+  content: "\e086" !important;          /* glyphicon-info-sign */
+  font-family: "Glyphicons Halflings", serif !important;
 }
 
 /* Star rating below the author line (tracker-only; no CWN analogue). */
@@ -258,88 +270,425 @@ body.blur .discover .row {
 }
 
 
-/* ── Book detail ─────────────────────────────────────────────────────────── */
-.book-detail-grid {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr);
-  gap: 2rem;
+/* ── Book detail page ────────────────────────────────────────────────────── */
+/*
+   Mirrors CWN's detail.html inline ``{% block header %}`` styles. The
+   only values diverging from CWN are:
+   - ``.log-form`` (tracker-specific reading-log block — no CWN analogue)
+   - ``.tracker-rereads`` (tracker-specific)
+   - ``.tracker-inline-action-form`` (single-form wrapper for the delete
+     action — CWN wires its actions via JS)
+*/
+
+.book-detail-page {
+  display: flex;
+  justify-content: center;
+  margin-top: 2rem;
+  margin-left: 1rem;
 }
-@media (min-width: 768px) {
-  .book-detail-grid {
-    grid-template-columns: 280px minmax(0, 1fr);
-  }
+
+.book-detail-card {
+  width: min(1500px, 100%);
+  background: rgba(0, 0, 0, 0.20);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 18px;
+  padding: 4rem;
+  display: flex;
+  flex-direction: column;
+  gap: 4rem;
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
 }
+
+.book-detail-main {
+  display: flex;
+  gap: 6rem;
+  align-items: flex-start;
+}
+
 .book-detail-cover {
-  background: #1a1a26;
-  border-radius: 4px;
-  overflow: hidden;
-  aspect-ratio: 2 / 3;
+  flex: 0 0 240px;
+  max-width: 240px;
 }
+
 .book-detail-cover img {
   width: 100%;
-  height: 100%;
-  object-fit: cover;
-  display: block;
+  height: auto;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.35);
 }
+
+/* CaliBlur ships a global ``.container-fluid img { width: 100%; max-width:
+   26rem }`` that loads after this rule. Bumping specificity above
+   ``.container-fluid img`` so the cover never exceeds its own column. */
+.book-detail-main .book-detail-cover img {
+  width: 100%;
+  max-width: 100%;
+}
+
 .book-detail-cover .cover-fallback {
-  height: 100%;
   display: flex;
   align-items: center;
   justify-content: center;
+  aspect-ratio: 2 / 3;
+  background: #1a1a26;
+  color: rgba(255, 255, 255, 0.55);
   text-align: center;
-  font-size: 0.85rem;
-  opacity: 0.6;
-  padding: 1rem;
+  font-size: 0.95rem;
+  padding: 1.5rem;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.35);
 }
 
-.book-detail-meta h1 {
-  margin-top: 0;
-  font-size: 1.7rem;
+.book-detail-meta {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
 }
-.book-detail-meta .book-detail-author {
-  font-size: 1rem;
-  opacity: 0.8;
+
+.book-detail-meta h2#title {
+  margin: 0;
+  font-size: 3rem;
   margin-bottom: 1rem;
 }
-.book-detail-meta dl {
-  margin: 0 0 1.5rem;
-}
-.book-detail-meta dt {
-  opacity: 0.6;
-  font-weight: normal;
-  width: 7rem;
-  float: left;
-  clear: left;
-}
-.book-detail-meta dd {
-  margin-left: 7rem;
+
+.book-detail-meta .author {
+  margin: 0;
+  opacity: 0.85;
 }
 
-.book-detail-tags .label {
-  margin-right: 0.25rem;
+/* Our user rating under the author — mirrors CWN's ``.rating`` block
+   directly below the title. Read-only stars; the edit page is where
+   the rating is changed. */
+.book-detail-rating {
+  margin-top: 0.5rem;
+  margin-bottom: 0.25rem;
+}
+
+.book-metadata {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+}
+
+.meta-chip {
+  display: flex;
+  align-items: center;
+  padding: 1rem 1.5rem;
+  background: rgba(0, 0, 0, 0.2);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 10px;
+  flex-wrap: wrap;
+  width: fit-content;
+  gap: 10px;
+}
+
+.meta-label {
+  font-weight: 600;
+  opacity: 0.85;
+}
+
+.meta-value {
+  opacity: 0.9;
+  display: flex;
+  flex-wrap: wrap;
+  flex-direction: row;
+  gap: 10px;
+}
+
+.meta-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: 999px;
   background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  font-size: 0.85em;
 }
 
-.log-form {
-  background: rgba(255, 255, 255, 0.03);
-  border: 1px solid rgba(255, 255, 255, 0.06);
-  border-radius: 6px;
-  padding: 1rem 1.25rem;
+/* Status meta-pill picks up its colour from .badge-{status} (shared with
+   the cover-overlay badges); .meta-pill stays as the pill shape. */
+.meta-pill.badge-want-to-read,
+.meta-pill.badge-reading,
+.meta-pill.badge-read,
+.meta-pill.badge-dnf {
+  border-color: transparent;
 }
-.log-form .form-group { margin-bottom: 0.85rem; }
+
+.book-detail-description {
+  padding-top: 4rem;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.book-detail-description h3 {
+  margin-top: 0;
+  margin-bottom: 3rem;
+}
+
+.book-detail-description p {
+  line-height: 1.6;
+}
+
+/* My-review block — render plain text but preserve the line breaks the
+   user typed in the textarea. ``white-space: pre-wrap`` keeps newlines
+   without forcing each line into its own block. */
+.book-detail-review .review-body {
+  line-height: 1.6;
+  white-space: pre-wrap;
+}
+
+.book-detail-card .hr {
+  display: none;
+}
+
+/* Action toolbar — CWN's ``.book-action-bar`` + ``.action-icon-btn``,
+   simplified to a single trash-icon button for "Remove from tracker". */
+.book-detail-actions {
+  margin-bottom: 1rem;
+}
+
+.book-action-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+}
+
+.book-action-bar .action-group {
+  display: flex;
+  flex-wrap: wrap;
+  column-gap: 8px;
+  align-items: flex-start;
+}
+
+.tracker-inline-action-form {
+  display: inline-block;
+  margin: 0;
+}
+
+.action-icon-btn {
+  width: 44px;
+  height: 44px;
+  min-width: 44px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 10px;
+  background-color: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+  color: rgba(255, 255, 255, 0.85) !important;
+  line-height: 1;
+  transition: background-color 0.15s ease, color 0.15s ease;
+}
+
+.action-icon-btn:hover,
+.action-icon-btn:focus {
+  background-color: rgba(255, 255, 255, 0.12) !important;
+  color: #fff !important;
+  outline: none;
+}
+
+.action-icon-btn.btn-danger {
+  color: rgba(255, 255, 255, 0.85) !important;
+}
+
+.action-icon-btn.btn-danger:hover,
+.action-icon-btn.btn-danger:focus {
+  background-color: rgba(224, 82, 82, 0.22) !important;
+  color: #fff !important;
+}
+
+.action-icon-btn .glyphicon {
+  font-size: 18px;
+}
+
+/* Tracker-only — reading-log form inside the glass card. No background of
+   its own; the card already provides one. */
+.log-form .form-group {
+  margin-bottom: 0.85rem;
+}
+
 .log-form .form-actions {
   display: flex;
   gap: 0.5rem;
   flex-wrap: wrap;
   margin-top: 0.5rem;
 }
-.log-form .delete-btn { margin-left: auto; }
 
-.reread-list {
-  margin-top: 1.5rem;
+.log-form-stars {
+  margin-top: 0;
 }
-.reread-list li {
-  list-style: none;
-  padding: 0.4rem 0;
-  border-top: 1px solid rgba(255, 255, 255, 0.05);
+
+/* Small helper text in form labels — e.g. "Rating (1–10, half-stars)". */
+.form-help {
+  opacity: 0.6;
+  font-weight: 400;
+  font-size: 0.85em;
+}
+
+/* Three-up field row (Started / Finished / Rating). Flexbox instead of
+   Bootstrap's ``.row > .col-sm-N`` so the outer edges sit flush with
+   the full-width fields above and below, while still keeping a gap
+   between fields. */
+.log-form-fields-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+  margin-bottom: 0.85rem;
+}
+
+.log-form-fields-row > .form-group {
+  flex: 1 1 0;
+  min-width: 140px;
+  margin-bottom: 0;
+}
+
+/* Reading-activity table — original read + rereads, one row each. */
+.reading-activity-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.reading-activity-table th,
+.reading-activity-table td {
+  padding: 0.75rem 0.5rem;
+  text-align: left;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  vertical-align: middle;
+}
+
+.reading-activity-table th {
+  font-size: 0.85rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  opacity: 0.65;
+  font-weight: 600;
+  border-bottom-color: rgba(255, 255, 255, 0.15);
+}
+
+.reading-activity-table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.reading-activity-table .col-num {
+  width: 3rem;
+  opacity: 0.65;
+}
+
+.reading-activity-table .col-status {
+  white-space: nowrap;
+}
+
+.reading-activity-table .col-date {
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.reading-activity-table .col-rating .star-rating {
+  font-size: 1rem;
+}
+
+.reading-activity-table .col-actions {
+  width: 3rem;
+  text-align: right;
+  white-space: nowrap;
+}
+
+.reading-activity-table .muted {
+  opacity: 0.4;
+}
+
+/* Small variant of action-icon-btn for in-row actions (e.g. the edit
+   pencil per reading-activity row). Same look + hover as the toolbar
+   buttons, just sized down so the table doesn't grow a chunky column. */
+.action-icon-btn-sm {
+  width: 32px;
+  height: 32px;
+  min-width: 32px;
+  border-radius: 8px;
+}
+
+.action-icon-btn-sm .glyphicon {
+  font-size: 14px;
+}
+
+/* Edit-page heading sits between the author line and the form so the
+   user always knows which mode they're in ("Add a read entry" vs
+   "Edit read entry #N"). */
+.book-edit-heading {
+  margin-top: 1.5rem;
+  margin-bottom: 0.5rem;
+  font-size: 1.25rem;
+  font-weight: 600;
+  opacity: 0.9;
+}
+
+/* Bootstrap 3 caps ``.tooltip-inner`` at ``max-width: 200px``, and
+   caliBlur's tooltip CSS adds ``white-space: nowrap`` — so longer
+   labels (e.g. "Reload metadata from Calibre-Web") render text past
+   the dark background pill. Bump the cap to fit the longest label
+   we use without forcing a wrap. */
+.tooltip-inner {
+  max-width: 360px !important;
+}
+
+/* Mobile: stack cover above meta, tighten paddings. Pulled from CWN's
+   media queries (lines 397-475 of detail.html) with the CWN-specific
+   selectors stripped out. */
+@media (max-width: 1400px) {
+  .book-detail-main {
+    flex-direction: column;
+    align-items: center;
+    gap: 2rem;
+  }
+  .book-detail-cover {
+    width: 240px;
+    max-width: 60%;
+  }
+  .book-detail-meta {
+    width: 100%;
+  }
+  .book-action-bar {
+    justify-content: center;
+  }
+}
+
+@media (max-width: 767px) {
+  .book-detail-page {
+    margin-left: 0;
+  }
+}
+
+@media (max-width: 600px) {
+  .book-detail-cover {
+    width: 200px;
+    max-width: 70%;
+  }
+  .book-detail-main {
+    gap: 1.25rem;
+  }
+  .book-detail-meta {
+    gap: 8px;
+  }
+  .book-detail-meta h2#title {
+    font-size: 2.2rem;
+    margin-bottom: 0.5rem;
+  }
+  .book-metadata {
+    gap: 6px 10px;
+  }
+  .meta-chip {
+    padding: 0.6rem 1rem;
+  }
+}
+
+@media (max-width: 560px) {
+  .book-detail-card {
+    margin-inline: 0;
+    padding: 1.5rem;
+    gap: 2rem;
+  }
 }

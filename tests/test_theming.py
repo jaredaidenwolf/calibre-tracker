@@ -110,7 +110,6 @@ def test_tracker_css_declares_all_status_badges(tracker_css):
         ".badge-reading",
         ".badge-read",
         ".badge-dnf",
-        ".badge-re-reading",
     ):
         assert badge in tracker_css, f"missing status badge class: {badge}"
 
