@@ -32,9 +32,11 @@ from ..extensions import csrf
 from .models import ReadingLog
 from .service import (
     ReadingLogValidationError,
+    create_read_attempt,
     delete_reading_log,
     maybe_run_cwn_import,
     quick_status_change,
+    update_read_attempt,
     upsert_reading_log,
 )
 
@@ -47,18 +49,34 @@ tracker_bp = Blueprint("tracker", __name__)
 # ── Dashboard helpers ───────────────────────────────────────────────────────
 
 
-def _logs_by_status(user_id: int) -> dict[str, list[ReadingLog]]:
-    """Group a user's non-reread logs by ``status``.
+def _latest_attempt_per_book(user_id: int) -> list[ReadingLog]:
+    """Return one row per book — the user's most recent read attempt.
 
-    Each list is freshest-first (most recently updated).
+    Walks every reading-log row for the user in created_at-desc order
+    and keeps the first row seen per ``calibre_book_id``. Cheap on the
+    dataset sizes a personal library produces; no need for a window
+    function here.
     """
     rows = (
-        ReadingLog.query.filter_by(user_id=user_id, is_reread=False)
-        .order_by(ReadingLog.updated_at.desc())
+        ReadingLog.query.filter_by(user_id=user_id)
+        .order_by(ReadingLog.created_at.desc(), ReadingLog.id.desc())
         .all()
     )
-    grouped: dict[str, list[ReadingLog]] = {}
+    seen: dict[int, ReadingLog] = {}
     for row in rows:
+        if row.calibre_book_id not in seen:
+            seen[row.calibre_book_id] = row
+    return list(seen.values())
+
+
+def _logs_by_status(user_id: int) -> dict[str, list[ReadingLog]]:
+    """Group books by their latest attempt's ``status``.
+
+    Each book appears exactly once, in the bucket of its most-recent
+    attempt. Lists are freshest-first (latest attempt's created_at).
+    """
+    grouped: dict[str, list[ReadingLog]] = {}
+    for row in _latest_attempt_per_book(user_id):
         grouped.setdefault(row.status, []).append(row)
     return grouped
 
@@ -143,7 +161,6 @@ STATUS_LABELS: dict[str, str] = {
     "want_to_read": "Want to Read",
     "read": "Finished",
     "dnf": "Did Not Finish",
-    "re_reading": "Re-reading",
 }
 
 
@@ -186,19 +203,15 @@ def dashboard() -> Response:
 def status_list(status: str) -> Response:
     """Show every book the user has logged under a single status.
 
-    The special status ``"all"`` shows every logged book (excluding
-    rereads), freshest-first. Otherwise ``status`` must be one of the
-    keys in :data:`STATUS_LABELS`.
+    The special status ``"all"`` lists every book in the tracker
+    (one row per book, using each book's latest read attempt). Other
+    statuses must be one of the keys in :data:`STATUS_LABELS`.
 
     No pagination yet — returns the full list. Real pagination can come
     later if libraries get big enough that this matters.
     """
     if status == "all":
-        logs = (
-            ReadingLog.query.filter_by(user_id=current_user.id, is_reread=False)
-            .order_by(ReadingLog.updated_at.desc())
-            .all()
-        )
+        logs = _latest_attempt_per_book(current_user.id)
         title = "All books"
     elif status in STATUS_LABELS:
         logs = _logs_by_status(current_user.id).get(status, [])
@@ -217,67 +230,167 @@ def status_list(status: str) -> Response:
 # ── Book detail ─────────────────────────────────────────────────────────────
 
 
+def _attempts_for(book_id: int) -> list[ReadingLog]:
+    """Return all of the current user's read attempts for ``book_id``.
+
+    Ordered oldest → newest so the reading-activity table reads
+    chronologically (row 1 = first read, row 2 = first reread, …).
+    """
+    return (
+        ReadingLog.query.filter_by(user_id=current_user.id, calibre_book_id=book_id)
+        .order_by(ReadingLog.created_at.asc(), ReadingLog.id.asc())
+        .all()
+    )
+
+
+def _form_payload() -> dict:
+    """Pluck the reading-log fields out of ``request.form``."""
+    return {
+        "status": request.form.get("status") or None,
+        "started_at": request.form.get("started_at") or None,
+        "finished_at": request.form.get("finished_at") or None,
+        "rating": request.form.get("rating") or None,
+        "review": request.form.get("review") or None,
+    }
+
+
 @tracker_bp.get("/book/<int:book_id>")
 @login_required
 def book_detail(book_id: int) -> Response:
-    """Cover + metadata + the reading-log form for ``book_id``."""
+    """Read-only display of a book + reading-activity table.
+
+    The reading-log form lives on :func:`book_edit` (new attempt) and
+    :func:`book_edit_entry` (amend a specific past attempt). Keeping
+    display and edit separate means multi-read history can be a
+    first-class table here instead of a clutter of input fields.
+    """
     book = get_book(book_id)
     if book is None:
         abort(404)
-    log = ReadingLog.query.filter_by(
-        user_id=current_user.id, calibre_book_id=book_id, is_reread=False
-    ).first()
-    rereads = (
-        ReadingLog.query.filter_by(user_id=current_user.id, calibre_book_id=book_id, is_reread=True)
-        .order_by(ReadingLog.reread_count.asc())
-        .all()
-    )
+    attempts = _attempts_for(book_id)
+    # Current row = most recently created. Drives the status chip up top
+    # + the rating-under-author display.
+    current = attempts[-1] if attempts else None
     return render_template(
         "tracker/book_detail.html",
         book=book,
-        log=log,
-        rereads=rereads,
+        attempts=attempts,
+        current=current,
     )
 
 
 @tracker_bp.post("/book/<int:book_id>")
 @login_required
 def book_detail_submit(book_id: int) -> Response:
-    """Handle the reading-log form on the book-detail page.
+    """Handle the delete action from the detail page.
 
-    Plain form encoding — CSRF protection comes from Flask-WTF (the
-    ``csrf_token`` hidden input rendered by the template). Bad input
-    flashes the error and re-renders rather than throwing a 400 in
-    the user's face.
+    Save/edit lives on :func:`book_edit_submit` / :func:`book_edit_entry_submit`;
+    this endpoint only accepts ``action=delete`` so the detail page never
+    has to ship a full form just to wire the trash icon. Delete removes
+    every read attempt for the book, since the trash icon reads as
+    "remove this book from my tracker".
     """
-    book = get_book(book_id)
-    if book is None:
+    if get_book(book_id) is None:
         abort(404)
-
-    payload = {
-        "status": request.form.get("status") or None,
-        "started_at": request.form.get("started_at") or None,
-        "finished_at": request.form.get("finished_at") or None,
-        "rating": request.form.get("rating") or None,
-        "review": request.form.get("review") or None,
-        "is_reread": bool(request.form.get("is_reread")),
-    }
-    # The "delete" button submits with action=delete; handle before validation
-    # so a delete request never has to satisfy the rating/status rules.
     if request.form.get("action") == "delete":
         if delete_reading_log(current_user, book_id):
             flash("Removed from your reading log.", "success")
         else:
             flash("Nothing to remove — book wasn't in your log.", "warning")
-        return redirect(url_for("tracker.book_detail", book_id=book_id))
+    return redirect(url_for("tracker.book_detail", book_id=book_id))
+
+
+@tracker_bp.get("/book/<int:book_id>/edit")
+@login_required
+def book_edit(book_id: int) -> Response:
+    """Blank-by-default form for adding a NEW read attempt.
+
+    Status / dates / rating start empty. Review is pre-filled from the
+    user's most recent attempt (treating "my overall take on this
+    book" as carrying forward — they can edit or clear it).
+
+    To amend a past attempt instead, use :func:`book_edit_entry`.
+    """
+    book = get_book(book_id)
+    if book is None:
+        abort(404)
+    attempts = _attempts_for(book_id)
+    prefill_review = attempts[-1].review if attempts else None
+    return render_template(
+        "tracker/book_edit.html",
+        book=book,
+        log=None,                   # blank form
+        prefill_review=prefill_review,
+        mode="new",
+        attempt_index=len(attempts) + 1,
+    )
+
+
+@tracker_bp.post("/book/<int:book_id>/edit")
+@login_required
+def book_edit_submit(book_id: int) -> Response:
+    """Insert a NEW read attempt and bounce back to the detail page.
+
+    Plain form encoding — CSRF protection comes from Flask-WTF (the
+    ``csrf_token`` hidden input rendered by the template). Bad input
+    flashes the error and re-renders the edit page rather than throwing
+    a 400 in the user's face.
+    """
+    if get_book(book_id) is None:
+        abort(404)
 
     try:
-        upsert_reading_log(current_user, book_id, payload)
+        create_read_attempt(current_user, book_id, _form_payload())
     except ReadingLogValidationError as exc:
         flash(str(exc), "danger")
-        return redirect(url_for("tracker.book_detail", book_id=book_id))
+        return redirect(url_for("tracker.book_edit", book_id=book_id))
 
-    flash("Reading log updated.", "success")
+    flash("Read entry added.", "success")
+    return redirect(url_for("tracker.book_detail", book_id=book_id))
+
+
+@tracker_bp.get("/book/<int:book_id>/edit/<int:entry_id>")
+@login_required
+def book_edit_entry(book_id: int, entry_id: int) -> Response:
+    """Form pre-filled for amending a specific past read attempt."""
+    book = get_book(book_id)
+    if book is None:
+        abort(404)
+    log = ReadingLog.query.filter_by(
+        id=entry_id, user_id=current_user.id, calibre_book_id=book_id
+    ).first()
+    if log is None:
+        abort(404)
+    attempts = _attempts_for(book_id)
+    attempt_index = next(
+        (i + 1 for i, row in enumerate(attempts) if row.id == log.id),
+        len(attempts),
+    )
+    return render_template(
+        "tracker/book_edit.html",
+        book=book,
+        log=log,
+        mode="edit",
+        attempt_index=attempt_index,
+    )
+
+
+@tracker_bp.post("/book/<int:book_id>/edit/<int:entry_id>")
+@login_required
+def book_edit_entry_submit(book_id: int, entry_id: int) -> Response:
+    """Update the specific read-attempt row identified by ``entry_id``."""
+    if get_book(book_id) is None:
+        abort(404)
+
+    try:
+        update_read_attempt(current_user, entry_id, _form_payload())
+    except ReadingLogValidationError as exc:
+        flash(str(exc), "danger")
+        return redirect(
+            url_for("tracker.book_edit_entry", book_id=book_id, entry_id=entry_id)
+        )
+
+    flash("Read entry updated.", "success")
     return redirect(url_for("tracker.book_detail", book_id=book_id))
 
 
@@ -290,15 +403,21 @@ def search() -> Response:
     """Find a book in the Calibre library and let the user log it."""
     query = (request.args.get("q") or "").strip()
     results = search_books(query, limit=50) if query else []
-    # Pull the current statuses for each hit so the badges render correctly.
+    # Each hit's badge shows the user's CURRENT status for that book,
+    # i.e. the status of their most recent read attempt. We walk the log
+    # in created_at-desc order and keep the first row seen per book.
     statuses: dict[int, str] = {}
     if results:
-        rows = ReadingLog.query.filter(
-            ReadingLog.user_id == current_user.id,
-            ReadingLog.calibre_book_id.in_([b.id for b in results]),
-            ReadingLog.is_reread.is_(False),
-        ).all()
-        statuses = {row.calibre_book_id: row.status for row in rows}
+        rows = (
+            ReadingLog.query.filter(
+                ReadingLog.user_id == current_user.id,
+                ReadingLog.calibre_book_id.in_([b.id for b in results]),
+            )
+            .order_by(ReadingLog.created_at.desc(), ReadingLog.id.desc())
+            .all()
+        )
+        for row in rows:
+            statuses.setdefault(row.calibre_book_id, row.status)
     return render_template(
         "tracker/search.html",
         query=query,

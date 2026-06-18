@@ -150,19 +150,34 @@ def test_book_detail_renders(alice_client):
     body = resp.get_data(as_text=True)
     assert "Piranesi" in body
     assert "Susanna Clarke" in body
-    assert 'name="csrf_token"' in body
-    assert 'name="status"' in body
-    assert 'name="rating"' in body
+    # The detail page is now read-only — the form has moved to /book/<id>/edit.
+    # The trash form is the only form on the page (only present when logged).
+    assert "/book/3/edit" in body  # pencil-icon link to the edit page
 
 
 def test_book_detail_404_for_unknown(alice_client):
     assert alice_client.get("/book/99999").status_code == 404
 
 
-def test_book_detail_form_persists(alice_client, app_context):
+def test_book_edit_renders_form(alice_client):
+    resp = alice_client.get("/book/3/edit")
+    assert resp.status_code == 200
+    body = resp.get_data(as_text=True)
+    assert 'name="csrf_token"' in body
+    assert 'name="status"' in body
+    assert 'name="rating"' in body
+    assert 'name="review"' in body
+
+
+def test_book_edit_404_for_unknown(alice_client):
+    assert alice_client.get("/book/99999/edit").status_code == 404
+
+
+def test_book_edit_form_creates_new_attempt(alice_client, app_context):
+    """POST /book/<id>/edit always inserts a fresh read-attempt row."""
     alice = User.query.filter_by(cwa_user_id=1).one()
     resp = alice_client.post(
-        "/book/3",
+        "/book/3/edit",
         data={
             "status": "read",
             "rating": "9",
@@ -171,16 +186,69 @@ def test_book_detail_form_persists(alice_client, app_context):
         follow_redirects=False,
     )
     assert resp.status_code in (302, 303)
-    log = ReadingLog.query.filter_by(user_id=alice.id, calibre_book_id=3, is_reread=False).one()
-    assert log.status == "read"
-    assert log.rating == 9
-    assert log.review == "Quiet, strange, perfect."
+    logs = ReadingLog.query.filter_by(user_id=alice.id, calibre_book_id=3).all()
+    assert len(logs) == 1
+    assert logs[0].status == "read"
+    assert logs[0].rating == 9
+    assert logs[0].review == "Quiet, strange, perfect."
+
+    # A second POST creates a SECOND row — no upsert. Every read attempt
+    # is its own row; the "second time through" just picks Currently
+    # Reading again (re_reading was retired in favour of one shared
+    # in-flight status).
+    alice_client.post(
+        "/book/3/edit",
+        data={"status": "reading"},
+        follow_redirects=False,
+    )
+    logs = ReadingLog.query.filter_by(user_id=alice.id, calibre_book_id=3).all()
+    assert len(logs) == 2
+    statuses = sorted(log.status for log in logs)
+    assert statuses == ["read", "reading"]
 
 
-def test_book_detail_form_rejects_bad_rating_via_flash(alice_client, app_context):
+def test_book_edit_entry_updates_in_place(alice_client, app_context):
+    """POST /book/<id>/edit/<entry_id> amends that row without creating
+    a new one."""
+    alice = User.query.filter_by(cwa_user_id=1).one()
+    alice_client.post("/book/3/edit", data={"status": "read", "rating": "7"})
+    log = ReadingLog.query.filter_by(user_id=alice.id, calibre_book_id=3).one()
+
+    resp = alice_client.post(
+        f"/book/3/edit/{log.id}",
+        data={"status": "read", "rating": "9", "review": "Better on reflection."},
+        follow_redirects=False,
+    )
+    assert resp.status_code in (302, 303)
+    logs = ReadingLog.query.filter_by(user_id=alice.id, calibre_book_id=3).all()
+    assert len(logs) == 1  # still just one row
+    assert logs[0].rating == 9
+    assert logs[0].review == "Better on reflection."
+
+
+def test_book_edit_entry_404_for_other_user_row(alice_client, app_context):
+    """A user can't edit another user's read-attempt row."""
+    # Seed a row owned by some other user_id (bob's row).
+    bob_log = ReadingLog(user_id=999, calibre_book_id=3, status="read")
+    from app.extensions import db
+    db.session.add(bob_log)
+    db.session.commit()
+
+    resp = alice_client.post(
+        f"/book/3/edit/{bob_log.id}",
+        data={"status": "read", "rating": "10"},
+        follow_redirects=True,
+    )
+    # Service raises ReadingLogValidationError -> flash + redirect to /edit
+    # (not 404 because the URL is valid; authz happens in the service layer).
+    body = resp.get_data(as_text=True)
+    assert "not found" in body.lower()
+
+
+def test_book_edit_form_rejects_bad_rating_via_flash(alice_client, app_context):
     """A bad rating flashes an error and does NOT persist."""
     resp = alice_client.post(
-        "/book/3",
+        "/book/3/edit",
         data={"status": "read", "rating": "99"},
         follow_redirects=True,
     )
@@ -188,19 +256,24 @@ def test_book_detail_form_rejects_bad_rating_via_flash(alice_client, app_context
     body = resp.get_data(as_text=True)
     assert "rating" in body.lower()  # flash visible
     alice = User.query.filter_by(cwa_user_id=1).one()
-    log = ReadingLog.query.filter_by(user_id=alice.id, calibre_book_id=3, is_reread=False).first()
+    log = ReadingLog.query.filter_by(user_id=alice.id, calibre_book_id=3).first()
     assert log is None or log.rating != 99
 
 
-def test_book_detail_delete_action(alice_client, app_context):
+def test_book_detail_delete_action_drops_all_rows(alice_client, app_context):
+    """The trash icon removes the book from the tracker entirely."""
     alice = User.query.filter_by(cwa_user_id=1).one()
     upsert_reading_log(alice, 3, {"status": "read", "rating": 8})
+    upsert_reading_log(alice, 3, {"status": "reading", "is_reread": True})
+    assert ReadingLog.query.filter_by(user_id=alice.id, calibre_book_id=3).count() == 2
+
     resp = alice_client.post(
         "/book/3",
         data={"action": "delete"},
         follow_redirects=False,
     )
     assert resp.status_code in (302, 303)
+    assert ReadingLog.query.filter_by(user_id=alice.id, calibre_book_id=3).count() == 0
     assert ReadingLog.current_status_for(alice.id, 3) is None
 
 
@@ -265,3 +338,26 @@ def test_dashboard_is_per_user(app):
     assert "Piranesi" not in bob_dash
     # Bob has no books — every status section should render the empty state.
     assert bob_dash.count("Nothing here yet.") >= 3
+
+
+def test_book_edit_review_only_persists_and_displays(alice_client, app_context):
+    """Review-only save: persists, repopulates the textarea on /edit, and
+    surfaces under 'My review' on the detail page. Mirrors the user flow."""
+    alice = User.query.filter_by(cwa_user_id=1).one()
+    resp = alice_client.post(
+        "/book/3/edit",
+        data={"review": "Sample content from the user."},
+        follow_redirects=False,
+    )
+    assert resp.status_code in (302, 303)
+
+    log = ReadingLog.query.filter_by(
+        user_id=alice.id, calibre_book_id=3
+    ).one()
+    assert log.review == "Sample content from the user."
+
+    body_edit = alice_client.get("/book/3/edit").get_data(as_text=True)
+    assert "Sample content from the user." in body_edit
+
+    body_detail = alice_client.get("/book/3").get_data(as_text=True)
+    assert "Sample content from the user." in body_detail

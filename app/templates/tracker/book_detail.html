@@ -5,6 +5,8 @@
 
 {% block body %}
 {#
+  Read-only display of a book.
+
   Mirrors CWN's detail.html scaffold:
     .discover > h2 > .single
       > .book-detail-page
@@ -12,17 +14,18 @@
           > .book-detail-main
             > .book-detail-cover
             > .book-detail-meta
-                > .book-detail-actions (toolbar)
+                > .book-detail-actions (toolbar: CWN-link, edit, delete)
                 > h2#title + .author
-                > .book-metadata (.meta-chip stack)
-                > tracker reading-log form
-                > tracker rereads list
+                > .book-detail-rating (our rating, if any)
+                > .book-metadata (.meta-chip stack — status at end)
           > .book-detail-description (Calibre comments)
+          > .book-detail-review (the user's latest review, if any)
+          > .reading-activity (table of all read attempts, each with edit pencil)
           > tracker quotes/notes placeholder
 
-  CSS lives in tracker.css under "Book detail page" — copied from CWN's
-  inline ``{% block header %}`` styles with the admin/upload/format-
-  conversion bits stripped.
+  The reading-log form lives on book_edit.html, reached via the action
+  bar's pencil icon (new attempt) or the per-row edit icon in the
+  reading-activity table (amend a past attempt).
 #}
 <div class="discover" style="margin: 0 !important;">
   <h2>{{ book.title }}</h2>
@@ -41,43 +44,84 @@
           </div>
 
           <div class="book-detail-meta">
-            {% if log %}
-              <div class="book-detail-actions">
-                <div class="book-action-bar" role="toolbar">
-                  <div class="action-group">
+            <div class="book-detail-actions">
+              <div class="book-action-bar" role="toolbar">
+                <div class="action-group">
+                  {% set cwa_book_url = (config.get('CWA_BASE_URL', '/') or '/').rstrip('/') ~ '/book/' ~ book.id %}
+                  {#
+                    Tooltips use ``title="" data-original-title="..."`` — CWN's
+                    pattern. Empty ``title`` keeps the browser's slow native
+                    tooltip from firing while Bootstrap reads from
+                    ``data-original-title`` on hover.
+                  #}
+                  <a href="{{ cwa_book_url }}"
+                     class="btn action-icon-btn"
+                     data-toggle="tooltip"
+                     data-placement="bottom"
+                     title=""
+                     data-original-title="View in Calibre-Web"
+                     aria-label="View in Calibre-Web">
+                    <span class="glyphicon glyphicon-book"></span>
+                  </a>
+                  {#
+                    Reload metadata: we read metadata.db live on every
+                    request, so reloading this page picks up any CWN-side
+                    change to the book's metadata. The button is just a
+                    discoverable affordance for that — same outcome as F5.
+                  #}
+                  <a href="{{ request.path }}"
+                     class="btn action-icon-btn"
+                     data-toggle="tooltip"
+                     data-placement="bottom"
+                     title=""
+                     data-original-title="Reload metadata from Calibre-Web"
+                     aria-label="Reload metadata from Calibre-Web">
+                    <span class="glyphicon glyphicon-refresh"></span>
+                  </a>
+                  <a href="{{ url_for('tracker.book_edit', book_id=book.id) }}"
+                     class="btn action-icon-btn"
+                     data-toggle="tooltip"
+                     data-placement="bottom"
+                     title=""
+                     data-original-title="Add a new read entry"
+                     aria-label="Add a new read entry">
+                    <span class="glyphicon glyphicon-pencil"></span>
+                  </a>
+                  {% if current %}
                     <form method="post"
                           action="{{ url_for('tracker.book_detail_submit', book_id=book.id) }}"
                           class="tracker-inline-action-form"
-                          onsubmit="return confirm('Remove this book from your tracker?\n\nThis deletes your reading log, dates, rating, review, and any rereads for this book. The book stays in your Calibre library.');">
+                          onsubmit="return confirm('Remove this book from your tracker?\n\nThis deletes every read attempt for this book — dates, ratings, reviews, and rereads. The book itself stays in your Calibre library.');">
                       <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                       <button type="submit" name="action" value="delete"
                               class="btn btn-danger action-icon-btn"
-                              title="Remove from tracker"
+                              data-toggle="tooltip"
+                              data-placement="bottom"
+                              title=""
+                              data-original-title="Remove from tracker"
                               aria-label="Remove from tracker">
                         <span class="glyphicon glyphicon-trash"></span>
                       </button>
                     </form>
-                  </div>
+                  {% endif %}
                 </div>
               </div>
-            {% endif %}
+            </div>
 
             <h2 id="title">{{ book.title }}</h2>
             {% if book.authors %}
               <p class="author">{{ book.authors | join(', ') }}</p>
             {% endif %}
 
+            {% if current and current.rating %}
+              <div class="book-detail-rating">
+                {% set rating = current.rating %}
+                {% set static = True %}
+                {% include 'components/rating_stars.html' %}
+              </div>
+            {% endif %}
+
             <div class="book-metadata">
-              {% if log and log.status %}
-                <div class="status meta-chip">
-                  <span class="meta-label">Status:</span>
-                  <span class="meta-value">
-                    <span class="meta-pill badge-{{ log.status | replace('_', '-') }}">
-                      {{ log.status | replace('_', ' ') }}
-                    </span>
-                  </span>
-                </div>
-              {% endif %}
               {% if book.series %}
                 <div class="series meta-chip">
                   <span class="meta-label">Series:</span>
@@ -104,74 +148,17 @@
                   {% endfor %}
                 </div>
               {% endif %}
+              {% if current and current.status %}
+                <div class="status meta-chip">
+                  <span class="meta-label">Status:</span>
+                  <span class="meta-value">
+                    <span class="meta-pill badge-{{ current.status | replace('_', '-') }}">
+                      {{ current.status | replace('_', ' ') }}
+                    </span>
+                  </span>
+                </div>
+              {% endif %}
             </div>
-
-            <form class="log-form" method="post"
-                  action="{{ url_for('tracker.book_detail_submit', book_id=book.id) }}">
-              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-
-              <div class="form-group">
-                <label for="log-status">Status</label>
-                <select name="status" id="log-status" class="form-control">
-                  {% set current_status = log.status if log else '' %}
-                  <option value="" {% if not current_status %}selected{% endif %}>— pick a status —</option>
-                  <option value="want_to_read" {% if current_status == 'want_to_read' %}selected{% endif %}>Want to read</option>
-                  <option value="reading"      {% if current_status == 'reading' %}selected{% endif %}>Currently reading</option>
-                  <option value="read"         {% if current_status == 'read' %}selected{% endif %}>Read</option>
-                  <option value="dnf"          {% if current_status == 'dnf' %}selected{% endif %}>Did not finish</option>
-                  <option value="re_reading"   {% if current_status == 're_reading' %}selected{% endif %}>Re-reading</option>
-                </select>
-              </div>
-
-              <div class="row">
-                <div class="form-group col-sm-6">
-                  <label for="started_at">Started</label>
-                  <input type="date" name="started_at" id="started_at" class="form-control"
-                         value="{{ log.started_at.strftime('%Y-%m-%d') if log and log.started_at else '' }}">
-                </div>
-                <div class="form-group col-sm-6">
-                  <label for="finished_at">Finished</label>
-                  <input type="date" name="finished_at" id="finished_at" class="form-control"
-                         value="{{ log.finished_at.strftime('%Y-%m-%d') if log and log.finished_at else '' }}">
-                </div>
-              </div>
-
-              <div class="form-group">
-                <label for="rating">Rating (1–10, half-stars)</label>
-                <input type="number" name="rating" id="rating" min="1" max="10" step="1" class="form-control"
-                       value="{{ log.rating if log and log.rating else '' }}">
-                <div class="log-form-stars">
-                  {% set rating = log.rating if log else None %}
-                  {% set static = True %}
-                  {% include 'components/rating_stars.html' %}
-                </div>
-              </div>
-
-              <div class="form-group">
-                <label for="review">Review / thoughts</label>
-                <textarea name="review" id="review" rows="5" class="form-control">{{ log.review if log and log.review else '' }}</textarea>
-              </div>
-
-              <div class="form-actions">
-                <button type="submit" class="btn btn-primary">Save</button>
-              </div>
-            </form>
-
-            {% if rereads %}
-              <div class="tracker-rereads">
-                <h3>Rereads</h3>
-                <ul class="reread-list">
-                  {% for r in rereads %}
-                    <li>
-                      <strong>Reread #{{ r.reread_count }}</strong>
-                      — status: {{ r.status | replace('_', ' ') }}
-                      {% if r.rating %} · rated {{ r.rating }}/10{% endif %}
-                      {% if r.finished_at %} · finished {{ r.finished_at.strftime('%Y-%m-%d') }}{% endif %}
-                    </li>
-                  {% endfor %}
-                </ul>
-              </div>
-            {% endif %}
           </div>
         </div>
 
@@ -179,6 +166,73 @@
           <div class="book-detail-description">
             <h3>Description</h3>
             {{ book.description|safe }}
+          </div>
+        {% endif %}
+
+        {% if current and current.review %}
+          <div class="book-detail-description book-detail-review">
+            <h3>My review</h3>
+            <div class="review-body">{{ current.review }}</div>
+          </div>
+        {% endif %}
+
+        {% if attempts %}
+          <div class="book-detail-description reading-activity">
+            <h3>Reading activity</h3>
+            <table class="reading-activity-table">
+              <thead>
+                <tr>
+                  <th class="col-num">#</th>
+                  <th class="col-status">Status</th>
+                  <th class="col-date">Started</th>
+                  <th class="col-date">Finished</th>
+                  <th class="col-rating">Rating</th>
+                  <th class="col-actions"><span class="sr-only">Actions</span></th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for entry in attempts %}
+                  <tr>
+                    <td class="col-num">{{ loop.index }}</td>
+                    <td class="col-status">
+                      {% if entry.status %}
+                        <span class="meta-pill badge-{{ entry.status | replace('_', '-') }}">
+                          {{ entry.status | replace('_', ' ') }}
+                        </span>
+                      {% else %}
+                        <span class="muted">—</span>
+                      {% endif %}
+                    </td>
+                    <td class="col-date">
+                      {% if entry.started_at %}{{ entry.started_at.strftime('%Y-%m-%d') }}{% else %}<span class="muted">—</span>{% endif %}
+                    </td>
+                    <td class="col-date">
+                      {% if entry.finished_at %}{{ entry.finished_at.strftime('%Y-%m-%d') }}{% else %}<span class="muted">—</span>{% endif %}
+                    </td>
+                    <td class="col-rating">
+                      {% if entry.rating %}
+                        {% set rating = entry.rating %}
+                        {% set static = True %}
+                        {% include 'components/rating_stars.html' %}
+                      {% else %}
+                        <span class="muted">—</span>
+                      {% endif %}
+                    </td>
+                    <td class="col-actions">
+                      <a href="{{ url_for('tracker.book_edit_entry', book_id=book.id, entry_id=entry.id) }}"
+                         class="btn action-icon-btn action-icon-btn-sm"
+                         data-toggle="tooltip"
+                         data-placement="left"
+                         title=""
+                         data-original-title="Edit this read entry"
+                         aria-label="Edit this read entry">
+                        <span class="glyphicon glyphicon-pencil"></span>
+                      </a>
+                    </td>
+                  </tr>
+                {% endfor %}
+              </tbody>
+            </table>
           </div>
         {% endif %}
 

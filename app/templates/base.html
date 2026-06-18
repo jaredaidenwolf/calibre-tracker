@@ -8,3 +8,8 @@
 {% block head_extras %}
   <link rel="stylesheet" href="{{ url_for('static', filename='css/tracker.css') }}">
 {% endblock %}
+
+{% block js %}
+  {{ super() }}
+  <script src="{{ url_for('static', filename='js/tracker.js') }}"></script>
+{% endblock %}

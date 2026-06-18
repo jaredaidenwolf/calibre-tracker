@@ -1,0 +1,117 @@
+{% extends "base.html" %}
+
+{% set is_new = mode == 'new' %}
+{% set page_heading = ('Add a read entry' if is_new else 'Edit read entry #' ~ attempt_index) %}
+{% set form_action = url_for('tracker.book_edit_submit', book_id=book.id) if is_new
+                    else url_for('tracker.book_edit_entry_submit', book_id=book.id, entry_id=log.id) %}
+
+{% block title %}{{ page_heading }} — {{ book.title }}{% endblock %}
+{% block body_class %}tracker-book tracker-book-edit{% endblock %}
+
+{% block body %}
+{#
+  Reading-log form. Two modes — both driven by the same template:
+
+  * ``mode = 'new'``  — every field blank except review, which is
+    pre-filled with the most recent attempt's review (treating review
+    as "my overall take" that carries forward). Posting creates a new
+    read attempt.
+  * ``mode = 'edit'`` — every field pre-filled from the specific row
+    being amended. Posting updates that row in place.
+#}
+<div class="discover" style="margin: 0 !important;">
+  <h2>{{ book.title }}</h2>
+  <div class="single">
+    <div class="book-detail-page">
+      <div class="book-detail-card">
+        <div class="book-detail-main">
+          <div class="book-detail-cover">
+            {% if book.has_cover %}
+              <img id="detailcover" title="{{ book.title }}"
+                   src="{{ url_for('tracker.cover', book_id=book.id) }}"
+                   alt="Cover of {{ book.title }}">
+            {% else %}
+              <div class="cover-fallback">{{ book.title }}</div>
+            {% endif %}
+          </div>
+
+          <div class="book-detail-meta">
+            <div class="book-detail-actions">
+              <div class="book-action-bar" role="toolbar">
+                <div class="action-group">
+                  <a href="{{ url_for('tracker.book_detail', book_id=book.id) }}"
+                     class="btn action-icon-btn"
+                     data-toggle="tooltip"
+                     data-placement="bottom"
+                     title=""
+                     data-original-title="Back to book"
+                     aria-label="Back to book">
+                    <span class="glyphicon glyphicon-arrow-left"></span>
+                  </a>
+                </div>
+              </div>
+            </div>
+
+            <h2 id="title">{{ book.title }}</h2>
+            {% if book.authors %}
+              <p class="author">{{ book.authors | join(', ') }}</p>
+            {% endif %}
+
+            <p class="book-edit-heading">{{ page_heading }}</p>
+
+            <form class="log-form" method="post" action="{{ form_action }}">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+
+              <div class="form-group">
+                <label for="log-status">Status</label>
+                <select name="status" id="log-status" class="form-control">
+                  {% set current_status = log.status if log else '' %}
+                  <option value="" {% if not current_status %}selected{% endif %}>— pick a status —</option>
+                  <option value="want_to_read" {% if current_status == 'want_to_read' %}selected{% endif %}>Want to read</option>
+                  <option value="reading"      {% if current_status == 'reading' %}selected{% endif %}>Currently reading</option>
+                  <option value="read"         {% if current_status == 'read' %}selected{% endif %}>Read</option>
+                  <option value="dnf"          {% if current_status == 'dnf' %}selected{% endif %}>Did not finish</option>
+                </select>
+              </div>
+
+              <div class="log-form-fields-row">
+                <div class="form-group">
+                  <label for="started_at">Started</label>
+                  <input type="date" name="started_at" id="started_at" class="form-control"
+                         value="{{ log.started_at.strftime('%Y-%m-%d') if log and log.started_at else '' }}">
+                </div>
+                <div class="form-group">
+                  <label for="finished_at">Finished</label>
+                  <input type="date" name="finished_at" id="finished_at" class="form-control"
+                         value="{{ log.finished_at.strftime('%Y-%m-%d') if log and log.finished_at else '' }}">
+                </div>
+                <div class="form-group">
+                  <label for="rating">Rating <small class="form-help">(1–10, half-stars)</small></label>
+                  <input type="number" name="rating" id="rating" min="1" max="10" step="1" class="form-control"
+                         value="{{ log.rating if log and log.rating else '' }}"
+                         placeholder="1–10">
+                  <div class="log-form-stars">
+                    {% set rating = log.rating if log else None %}
+                    {% set static = True %}
+                    {% include 'components/rating_stars.html' %}
+                  </div>
+                </div>
+              </div>
+
+              <div class="form-group">
+                <label for="review">Review</label>
+                <textarea name="review" id="review" rows="5" class="form-control">{% if log and log.review %}{{ log.review }}{% elif is_new and prefill_review %}{{ prefill_review }}{% endif %}</textarea>
+              </div>
+
+              <div class="form-actions">
+                <button type="submit" class="btn btn-primary">{% if is_new %}Add entry{% else %}Save{% endif %}</button>
+                <a href="{{ url_for('tracker.book_detail', book_id=book.id) }}" class="btn btn-default">Cancel</a>
+              </div>
+            </form>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
