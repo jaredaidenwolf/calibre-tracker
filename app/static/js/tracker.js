@@ -25,4 +25,11 @@ $(function () {
             delay: { show: 0, hide: 0 }
         });
     }
+
+    // Same caliBlur.js stripping affects Bootstrap tab anchors:
+    // <a data-toggle="tab"> loses its data-toggle, so Bootstrap's
+    // delegated click handler ($(document).on('click.bs.tab.data-api',
+    // '[data-toggle="tab"]', ...)) never matches and the Notes tab
+    // becomes a dead link. Re-add the attribute on tracker tabs.
+    $('.tracker-tabs > li > a').attr('data-toggle', 'tab');
 });

@@ -1,0 +1,107 @@
+{% extends "base.html" %}
+
+{% set is_new = mode == 'new' %}
+{% set page_heading = 'Add a quote' if is_new else 'Edit quote' %}
+{% set form_action = url_for('tracker.quote_create', book_id=book.id) if is_new
+                    else url_for('tracker.quote_update', quote_id=quote.id) %}
+
+{% block title %}{{ page_heading }} — {{ book.title }}{% endblock %}
+{% block body_class %}tracker-book tracker-annotation-edit{% endblock %}
+
+{% block body %}
+<div class="discover" style="margin: 0 !important;">
+  <h2>{{ book.title }}</h2>
+  <div class="single">
+    <div class="book-detail-page">
+      <div class="book-detail-card">
+        <div class="book-detail-main">
+          <div class="book-detail-cover">
+            {% if book.has_cover %}
+              <img id="detailcover" title="{{ book.title }}"
+                   src="{{ url_for('tracker.cover', book_id=book.id) }}"
+                   alt="Cover of {{ book.title }}">
+            {% else %}
+              <div class="cover-fallback">{{ book.title }}</div>
+            {% endif %}
+          </div>
+
+          <div class="book-detail-meta">
+            <div class="book-detail-actions">
+              <div class="book-action-bar" role="toolbar">
+                <div class="action-group">
+                  <a href="{{ url_for('tracker.book_detail', book_id=book.id) }}#quotes"
+                     class="btn action-icon-btn"
+                     data-toggle="tooltip" data-placement="bottom"
+                     title="" data-original-title="Back to book"
+                     aria-label="Back to book">
+                    <span class="glyphicon glyphicon-arrow-left"></span>
+                  </a>
+                </div>
+              </div>
+            </div>
+
+            <h2 id="title">{{ book.title }}</h2>
+            {% if book.authors %}
+              <p class="author">{{ book.authors | join(', ') }}</p>
+            {% endif %}
+
+            <p class="book-edit-heading">{{ page_heading }}</p>
+
+            <form class="log-form" method="post" action="{{ form_action }}">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+
+              <div class="form-group">
+                <label for="quote_text">Quote</label>
+                <textarea name="quote_text" id="quote_text" rows="6"
+                          class="form-control" required>{{ quote.quote_text if quote else '' }}</textarea>
+              </div>
+
+              <div class="log-form-fields-row">
+                <div class="form-group">
+                  <label for="page_reference">Page <small class="form-help">(free-text)</small></label>
+                  <input type="text" name="page_reference" id="page_reference"
+                         class="form-control" maxlength="64"
+                         placeholder="p. 142, loc. 1443, …"
+                         value="{{ quote.page_reference if quote and quote.page_reference else '' }}">
+                </div>
+                <div class="form-group">
+                  <label for="chapter_reference">Chapter</label>
+                  <input type="text" name="chapter_reference" id="chapter_reference"
+                         class="form-control" maxlength="128"
+                         placeholder="Ch. 4, Part II, …"
+                         value="{{ quote.chapter_reference if quote and quote.chapter_reference else '' }}">
+                </div>
+              </div>
+
+              <div class="form-group">
+                <label for="context_note">Context <small class="form-help">(optional)</small></label>
+                <textarea name="context_note" id="context_note" rows="3"
+                          class="form-control"
+                          placeholder="What's happening when this line lands…">{{ quote.context_note if quote and quote.context_note else '' }}</textarea>
+              </div>
+
+              <div class="form-group form-checkbox">
+                {# The "_present" hidden field marks that this form includes
+                   the favourite checkbox, so the service layer knows to
+                   honour an *unchecked* state instead of treating it as
+                   "field omitted". #}
+                <input type="hidden" name="is_favourite_present" value="1">
+                <label>
+                  <input type="checkbox" name="is_favourite" value="1"
+                         {% if quote and quote.is_favourite %}checked{% endif %}>
+                  <span class="glyphicon glyphicon-star"></span> Mark as favourite
+                </label>
+              </div>
+
+              <div class="form-actions">
+                <button type="submit" class="btn btn-primary">{% if is_new %}Add quote{% else %}Save{% endif %}</button>
+                <a href="{{ url_for('tracker.book_detail', book_id=book.id) }}#quotes" class="btn btn-default">Cancel</a>
+              </div>
+            </form>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

@@ -1,0 +1,140 @@
+{% extends "base.html" %}
+
+{% block title %}Quotes{% endblock %}
+{% block body_class %}tracker-quotes-index{% endblock %}
+
+{% block body %}
+{#
+  Layout mirrors dashboard.html: the .discover wrapper holds only the
+  page-title banner (caliBlur paints it as a fixed bar at top:60px).
+  The filter toolbar + quote list are siblings, each wearing the same
+  35px horizontal margins as the dashboard's stats strip and grid so
+  the visual rhythm carries across pages.
+#}
+<div class="discover tracker-page-banner">
+  <h2>Quotes</h2>
+</div>
+
+<div class="tracker-toolbar tracker-quotes-toolbar">
+  <form method="get" action="{{ url_for('tracker.quotes_index') }}" class="tracker-quotes-filters">
+    <div class="form-group">
+      <select name="book" id="book-filter" class="form-control"
+              onchange="this.form.submit()">
+        <option value="">All books</option>
+        {% for b in book_options %}
+          <option value="{{ b.id }}" {% if book_filter == b.id %}selected{% endif %}>
+            {{ b.title }}
+          </option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="form-group form-checkbox">
+      <label>
+        <input type="checkbox" name="favourites" value="1"
+               {% if favourites_only %}checked{% endif %}
+               onchange="this.form.submit()">
+        <span class="glyphicon glyphicon-star"></span> Favourites only
+      </label>
+    </div>
+    <noscript>
+      <button type="submit" class="btn btn-default btn-sm">Apply</button>
+    </noscript>
+  </form>
+  <div class="tracker-quotes-total">{{ total }} quote{{ '' if total == 1 else 's' }}</div>
+</div>
+
+<section class="tracker-section tracker-quotes-section">
+  {% if paired %}
+    <ul class="quote-list quote-list-global">
+      {% for entry in paired %}
+        {% set q = entry.quote %}
+        {% set b = entry.book %}
+        <li class="quote-card quote-card-global{% if q.is_favourite %} is-favourite{% endif %}">
+          {% if b %}
+            <a class="quote-card-cover"
+               href="{{ url_for('tracker.book_detail', book_id=b.id) }}#quotes"
+               title="{{ b.title }}">
+              {% if b.has_cover %}
+                <img src="{{ url_for('tracker.cover', book_id=b.id) }}"
+                     alt="Cover of {{ b.title }}" loading="lazy">
+              {% else %}
+                <span class="cover-fallback">{{ b.title }}</span>
+              {% endif %}
+            </a>
+          {% endif %}
+          <div class="quote-card-content">
+            {% if b %}
+              <a class="quote-book-link"
+                 href="{{ url_for('tracker.book_detail', book_id=b.id) }}#quotes">
+                <span class="quote-book-title">{{ b.title }}</span>
+                {% if b.authors %}<span class="quote-book-author">{{ b.authors | join(', ') }}</span>{% endif %}
+              </a>
+            {% else %}
+              <p class="tracker-empty">Book no longer in library.</p>
+            {% endif %}
+
+            <blockquote class="quote-body">{{ q.quote_text }}</blockquote>
+          <div class="quote-footer">
+            <div class="quote-meta">
+              {% if q.page_reference %}<span class="meta-pill">{{ q.page_reference }}</span>{% endif %}
+              {% if q.chapter_reference %}<span class="meta-pill">{{ q.chapter_reference }}</span>{% endif %}
+            </div>
+            <div class="quote-actions">
+              <form method="post" action="{{ url_for('tracker.quote_favourite', quote_id=q.id) }}"
+                    class="tracker-inline-action-form">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <input type="hidden" name="next" value="{{ request.full_path }}">
+                <button type="submit"
+                        class="btn action-icon-btn action-icon-btn-sm{% if q.is_favourite %} is-on{% endif %}"
+                        data-toggle="tooltip" data-placement="top"
+                        title=""
+                        data-original-title="{% if q.is_favourite %}Unfavourite{% else %}Favourite{% endif %}"
+                        aria-label="Toggle favourite">
+                  <span class="glyphicon glyphicon-star{% if not q.is_favourite %}-empty{% endif %}"></span>
+                </button>
+              </form>
+              <a href="{{ url_for('tracker.quote_edit', quote_id=q.id) }}"
+                 class="btn action-icon-btn action-icon-btn-sm"
+                 data-toggle="tooltip" data-placement="top"
+                 title="" data-original-title="Edit"
+                 aria-label="Edit quote">
+                <span class="glyphicon glyphicon-pencil"></span>
+              </a>
+              <form method="post" action="{{ url_for('tracker.quote_delete', quote_id=q.id) }}"
+                    class="tracker-inline-action-form"
+                    onsubmit="return confirm('Delete this quote?');">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <button type="submit"
+                        class="btn btn-danger action-icon-btn action-icon-btn-sm"
+                        data-toggle="tooltip" data-placement="top"
+                        title="" data-original-title="Delete"
+                        aria-label="Delete quote">
+                  <span class="glyphicon glyphicon-trash"></span>
+                </button>
+              </form>
+            </div>
+          </div>
+          {% if q.context_note %}
+            <details class="quote-context">
+              <summary>
+                <span class="quote-context-chevron glyphicon glyphicon-chevron-right" aria-hidden="true"></span>
+                <span class="quote-context-label">Context</span>
+              </summary>
+              <div class="quote-context-body">{{ q.context_note }}</div>
+            </details>
+          {% endif %}
+          </div>
+        </li>
+      {% endfor %}
+    </ul>
+  {% else %}
+    <p class="tracker-empty">
+      {% if favourites_only or book_filter %}
+        No quotes match your filters.
+      {% else %}
+        No quotes yet. Open a book and capture a line.
+      {% endif %}
+    </p>
+  {% endif %}
+</section>
+{% endblock %}

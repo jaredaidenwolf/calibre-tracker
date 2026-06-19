@@ -23,7 +23,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 
 from ..extensions import db
-from .models import READING_STATUSES, ReadingLog, User
+from .models import NOTE_TYPES, READING_STATUSES, Note, Quote, ReadingLog, User
 
 
 def _utcnow_naive() -> datetime:
@@ -306,6 +306,143 @@ def _next_reread_count(user_id: int, calibre_book_id: int) -> int:
         .count()
     )
     return existing + 1
+
+
+# ── Quotes & Notes (Phase 7) ────────────────────────────────────────────────
+
+
+class AnnotationValidationError(ValueError):
+    """Raised when an inbound quote or note payload fails validation."""
+
+
+def _clean_text(raw: object, field: str, *, required: bool = False) -> str | None:
+    """Strip a free-text field. Return ``None`` if blank (unless required)."""
+    if raw is None:
+        text = ""
+    elif isinstance(raw, str):
+        text = raw.strip()
+    else:
+        raise AnnotationValidationError(f"{field} must be text")
+    if not text:
+        if required:
+            raise AnnotationValidationError(f"{field} is required")
+        return None
+    return text
+
+
+def _clean_short(raw: object, field: str, *, max_len: int) -> str | None:
+    """Strip + length-cap a short reference field (page, chapter)."""
+    text = _clean_text(raw, field, required=False)
+    if text is not None and len(text) > max_len:
+        raise AnnotationValidationError(f"{field} must be ≤ {max_len} characters")
+    return text
+
+
+def _parse_note_type(raw: object) -> str:
+    """Reject anything outside :data:`NOTE_TYPES`. Defaults to ``'general'``."""
+    if raw is None or raw == "":
+        return "general"
+    if not isinstance(raw, str) or raw not in NOTE_TYPES:
+        allowed = ", ".join(sorted(NOTE_TYPES))
+        raise AnnotationValidationError(f"note_type must be one of: {allowed}")
+    return raw
+
+
+def create_quote(user: User, calibre_book_id: int, data: dict) -> Quote:
+    """Insert a :class:`Quote` for the user. ``quote_text`` is required."""
+    quote = Quote(
+        user_id=user.id,
+        calibre_book_id=calibre_book_id,
+        quote_text=_clean_text(data.get("quote_text"), "quote_text", required=True),
+        page_reference=_clean_short(data.get("page_reference"), "page_reference", max_len=64),
+        chapter_reference=_clean_short(data.get("chapter_reference"), "chapter_reference", max_len=128),
+        context_note=_clean_text(data.get("context_note"), "context_note"),
+        is_favourite=bool(data.get("is_favourite")),
+    )
+    db.session.add(quote)
+    db.session.commit()
+    return quote
+
+
+def update_quote(user: User, quote_id: int, data: dict) -> Quote:
+    """Amend an existing quote. Authorises by ``user_id``."""
+    quote = db.session.get(Quote, quote_id)
+    if quote is None or quote.user_id != user.id:
+        raise AnnotationValidationError("quote not found")
+    quote.quote_text = _clean_text(data.get("quote_text"), "quote_text", required=True)
+    quote.page_reference = _clean_short(data.get("page_reference"), "page_reference", max_len=64)
+    quote.chapter_reference = _clean_short(
+        data.get("chapter_reference"), "chapter_reference", max_len=128
+    )
+    quote.context_note = _clean_text(data.get("context_note"), "context_note")
+    # The favourite flag has its own toggle endpoint; only honour it here
+    # when the form explicitly includes the checkbox (so editing a quote
+    # never silently un-favourites it).
+    if "is_favourite" in data:
+        quote.is_favourite = bool(data.get("is_favourite"))
+    db.session.commit()
+    return quote
+
+
+def toggle_quote_favourite(user: User, quote_id: int) -> Quote:
+    """Flip a quote's ``is_favourite`` flag. Authorises by ``user_id``."""
+    quote = db.session.get(Quote, quote_id)
+    if quote is None or quote.user_id != user.id:
+        raise AnnotationValidationError("quote not found")
+    quote.is_favourite = not quote.is_favourite
+    db.session.commit()
+    return quote
+
+
+def delete_quote(user: User, quote_id: int) -> bool:
+    """Delete a quote owned by ``user``. Returns ``False`` if it doesn't exist."""
+    quote = db.session.get(Quote, quote_id)
+    if quote is None or quote.user_id != user.id:
+        return False
+    db.session.delete(quote)
+    db.session.commit()
+    return True
+
+
+def create_note(user: User, calibre_book_id: int, data: dict) -> Note:
+    """Insert a :class:`Note` for the user. ``note_text`` is required."""
+    note = Note(
+        user_id=user.id,
+        calibre_book_id=calibre_book_id,
+        note_text=_clean_text(data.get("note_text"), "note_text", required=True),
+        note_type=_parse_note_type(data.get("note_type")),
+        page_reference=_clean_short(data.get("page_reference"), "page_reference", max_len=64),
+        is_spoiler=bool(data.get("is_spoiler")),
+    )
+    db.session.add(note)
+    db.session.commit()
+    return note
+
+
+def update_note(user: User, note_id: int, data: dict) -> Note:
+    """Amend an existing note. Authorises by ``user_id``."""
+    note = db.session.get(Note, note_id)
+    if note is None or note.user_id != user.id:
+        raise AnnotationValidationError("note not found")
+    note.note_text = _clean_text(data.get("note_text"), "note_text", required=True)
+    note.note_type = _parse_note_type(data.get("note_type"))
+    note.page_reference = _clean_short(data.get("page_reference"), "page_reference", max_len=64)
+    # Same logic as ``update_quote.is_favourite`` — only honour the flag
+    # when the form explicitly includes it.
+    if "is_spoiler" in data:
+        note.is_spoiler = bool(data.get("is_spoiler"))
+    db.session.commit()
+    return note
+
+
+def delete_note(user: User, note_id: int) -> bool:
+    """Delete a note owned by ``user``. Returns ``False`` if it doesn't exist."""
+    note = db.session.get(Note, note_id)
+    if note is None or note.user_id != user.id:
+        return False
+    db.session.delete(note)
+    db.session.commit()
+    return True
 
 
 # ── CWN import ──────────────────────────────────────────────────────────────
