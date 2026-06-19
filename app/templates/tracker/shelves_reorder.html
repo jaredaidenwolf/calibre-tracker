@@ -1,0 +1,37 @@
+{% extends "base.html" %}
+
+{% block title %}Reorder Shelves{% endblock %}
+{% block body_class %}tracker-shelves-reorder{% endblock %}
+
+{% block body %}
+<div class="discover tracker-page-banner">
+  <h2>Reorder Shelves</h2>
+</div>
+
+<section class="tracker-section tracker-shelves-section">
+  <div class="shelf-edit-form-wrap">
+    {% if shelves %}
+      <p class="tracker-empty" style="font-style: normal; opacity: 0.85;">
+        Drag-and-drop reorder for shelves is coming. For now the sidebar
+        lists shelves alphabetically.
+      </p>
+      <ul class="shelf-list">
+        {% for s in shelves %}
+          <li class="shelf-card">
+            <a href="{{ url_for('tracker.shelf_detail', shelf_id=s.id) }}" class="shelf-card-link">
+              <span class="shelf-card-swatch"
+                    {% if s.color_hex %}style="background-color: {{ s.color_hex }};"{% endif %}
+                    aria-hidden="true"></span>
+              <span class="shelf-card-meta">
+                <span class="shelf-card-name">{{ s.name }}</span>
+              </span>
+            </a>
+          </li>
+        {% endfor %}
+      </ul>
+    {% else %}
+      <p class="tracker-empty">No shelves yet.</p>
+    {% endif %}
+  </div>
+</section>
+{% endblock %}

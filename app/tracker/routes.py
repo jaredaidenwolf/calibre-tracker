@@ -29,22 +29,29 @@ from flask_login import current_user, login_required
 
 from ..calibre.repository import get_book, get_books, search_books
 from ..extensions import csrf, db
-from .models import Note, Quote, ReadingLog
+from .models import Note, Quote, ReadingLog, Shelf, ShelfBook
 from .service import (
     AnnotationValidationError,
     ReadingLogValidationError,
+    ShelfValidationError,
+    add_book_to_shelf,
     create_note,
     create_quote,
     create_read_attempt,
+    create_shelf,
     delete_note,
     delete_quote,
     delete_reading_log,
+    delete_shelf,
     maybe_run_cwn_import,
+    move_book_in_shelf,
     quick_status_change,
+    remove_book_from_shelf,
     toggle_quote_favourite,
     update_note,
     update_quote,
     update_read_attempt,
+    update_shelf,
     upsert_reading_log,
 )
 
@@ -289,6 +296,18 @@ def book_detail(book_id: int) -> Response:
         .order_by(Note.created_at.desc())
         .all()
     )
+    # Shelves the user has + which ones this book sits on. Used by the
+    # "Add to shelf" widget on the detail page.
+    all_shelves = (
+        Shelf.query.filter_by(user_id=current_user.id).order_by(Shelf.name.asc()).all()
+    )
+    book_shelf_ids = {
+        row.shelf_id
+        for row in db.session.query(ShelfBook.shelf_id)
+        .join(Shelf, Shelf.id == ShelfBook.shelf_id)
+        .filter(Shelf.user_id == current_user.id, ShelfBook.calibre_book_id == book_id)
+        .all()
+    }
     return render_template(
         "tracker/book_detail.html",
         book=book,
@@ -296,6 +315,8 @@ def book_detail(book_id: int) -> Response:
         current=current,
         quotes=quotes,
         notes=notes,
+        all_shelves=all_shelves,
+        book_shelf_ids=book_shelf_ids,
     )
 
 
@@ -639,6 +660,249 @@ def quotes_index() -> Response:
         book_options=book_options,
         total=len(paired),
     )
+
+
+# ── Shelves (Phase 8) ───────────────────────────────────────────────────────
+
+
+def _shelf_form_data() -> dict:
+    return {
+        "name": request.form.get("name") or None,
+        "description": request.form.get("description") or None,
+        "color_hex": request.form.get("color_hex") or None,
+    }
+
+
+def _book_counts_for_shelves(shelf_ids: list[int]) -> dict[int, int]:
+    """Cheap one-query book-count lookup for a shelf-list view."""
+    if not shelf_ids:
+        return {}
+    rows = (
+        db.session.query(ShelfBook.shelf_id, db.func.count(ShelfBook.id))
+        .filter(ShelfBook.shelf_id.in_(shelf_ids))
+        .group_by(ShelfBook.shelf_id)
+        .all()
+    )
+    return {shelf_id: count for shelf_id, count in rows}
+
+
+@tracker_bp.get("/shelves")
+@login_required
+def shelves_index() -> Response:
+    """List the user's shelves with book counts."""
+    shelves = (
+        Shelf.query.filter_by(user_id=current_user.id)
+        .order_by(Shelf.name.asc())
+        .all()
+    )
+    counts = _book_counts_for_shelves([s.id for s in shelves])
+    paired = [{"shelf": s, "book_count": counts.get(s.id, 0)} for s in shelves]
+    return render_template("tracker/shelves.html", paired=paired, total=len(paired))
+
+
+@tracker_bp.get("/shelves/new")
+@login_required
+def shelf_new() -> Response:
+    return render_template("tracker/shelf_edit.html", shelf=None, mode="new")
+
+
+@tracker_bp.get("/shelves/reorder")
+@login_required
+def shelves_reorder() -> Response:
+    """Stub: lets the user reorder their shelves.
+
+    Persistence requires a ``sort_order`` column on ``Shelf`` plus a
+    migration — deferred. The page renders the current name-sorted list
+    so the link in the sidebar has somewhere to land in the meantime.
+    """
+    shelves = (
+        Shelf.query.filter_by(user_id=current_user.id)
+        .order_by(Shelf.name.asc())
+        .all()
+    )
+    return render_template("tracker/shelves_reorder.html", shelves=shelves)
+
+
+@tracker_bp.post("/shelves/new")
+@login_required
+def shelf_create() -> Response:
+    try:
+        shelf = create_shelf(current_user, _shelf_form_data())
+    except ShelfValidationError as exc:
+        flash(str(exc), "danger")
+        return redirect(url_for("tracker.shelf_new"))
+    flash("Shelf created.", "success")
+    return redirect(url_for("tracker.shelf_detail", shelf_id=shelf.id))
+
+
+@tracker_bp.get("/shelf/<int:shelf_id>")
+@login_required
+def shelf_detail(shelf_id: int) -> Response:
+    """Show the books on a shelf — ordered by ``sort_order``."""
+    shelf = Shelf.query.filter_by(id=shelf_id, user_id=current_user.id).first()
+    if shelf is None:
+        abort(404)
+    memberships = (
+        ShelfBook.query.filter_by(shelf_id=shelf.id)
+        .order_by(ShelfBook.sort_order.asc(), ShelfBook.id.asc())
+        .all()
+    )
+    book_ids = [m.calibre_book_id for m in memberships]
+    books_by_id = {b.id: b for b in get_books(book_ids)}
+    entries = [
+        {"membership": m, "book": books_by_id.get(m.calibre_book_id)}
+        for m in memberships
+    ]
+    return render_template(
+        "tracker/shelf_detail.html",
+        shelf=shelf,
+        entries=entries,
+        total=len(entries),
+    )
+
+
+@tracker_bp.get("/shelf/<int:shelf_id>/edit")
+@login_required
+def shelf_edit(shelf_id: int) -> Response:
+    shelf = Shelf.query.filter_by(id=shelf_id, user_id=current_user.id).first()
+    if shelf is None:
+        abort(404)
+    return render_template("tracker/shelf_edit.html", shelf=shelf, mode="edit")
+
+
+@tracker_bp.post("/shelf/<int:shelf_id>/edit")
+@login_required
+def shelf_update(shelf_id: int) -> Response:
+    shelf = Shelf.query.filter_by(id=shelf_id, user_id=current_user.id).first()
+    if shelf is None:
+        abort(404)
+    try:
+        update_shelf(current_user, shelf_id, _shelf_form_data())
+    except ShelfValidationError as exc:
+        flash(str(exc), "danger")
+        return redirect(url_for("tracker.shelf_edit", shelf_id=shelf_id))
+    flash("Shelf updated.", "success")
+    return redirect(url_for("tracker.shelf_detail", shelf_id=shelf_id))
+
+
+@tracker_bp.post("/shelf/<int:shelf_id>/delete")
+@login_required
+def shelf_delete(shelf_id: int) -> Response:
+    if delete_shelf(current_user, shelf_id):
+        flash("Shelf deleted.", "success")
+    else:
+        abort(404)
+    return redirect(url_for("tracker.shelves_index"))
+
+
+@tracker_bp.post("/shelf/<int:shelf_id>/add-book")
+@login_required
+def shelf_add_book(shelf_id: int) -> Response:
+    """Add a Calibre book to the shelf. ``book_id`` comes from form data."""
+    book_id = request.form.get("book_id", type=int)
+    if book_id is None or get_book(book_id) is None:
+        abort(404)
+    try:
+        add_book_to_shelf(current_user, shelf_id, book_id)
+    except ShelfValidationError as exc:
+        flash(str(exc), "danger")
+        return redirect(
+            request.form.get("next") or url_for("tracker.book_detail", book_id=book_id)
+        )
+    flash("Added to shelf.", "success")
+    return redirect(
+        request.form.get("next") or url_for("tracker.book_detail", book_id=book_id)
+    )
+
+
+@tracker_bp.post("/shelf/<int:shelf_id>/remove-book")
+@login_required
+def shelf_remove_book(shelf_id: int) -> Response:
+    book_id = request.form.get("book_id", type=int)
+    if book_id is None:
+        abort(404)
+    try:
+        removed = remove_book_from_shelf(current_user, shelf_id, book_id)
+    except ShelfValidationError as exc:
+        flash(str(exc), "danger")
+        return redirect(
+            request.form.get("next")
+            or url_for("tracker.shelf_detail", shelf_id=shelf_id)
+        )
+    if not removed:
+        # Idempotent from the user's perspective — silent "ok" rather than 404.
+        pass
+    return redirect(
+        request.form.get("next") or url_for("tracker.shelf_detail", shelf_id=shelf_id)
+    )
+
+
+@tracker_bp.get("/shelf/<int:shelf_id>/order")
+@login_required
+def shelf_order(shelf_id: int) -> Response:
+    """Manual reordering view — list of books with up/down arrows.
+
+    The shelf detail page itself is a CWN-style grid; reorder needs a
+    list view (so the up/down buttons make sense). Mirrors CWN's
+    ``ChangeOrder`` page.
+    """
+    shelf = Shelf.query.filter_by(id=shelf_id, user_id=current_user.id).first()
+    if shelf is None:
+        abort(404)
+    memberships = (
+        ShelfBook.query.filter_by(shelf_id=shelf.id)
+        .order_by(ShelfBook.sort_order.asc(), ShelfBook.id.asc())
+        .all()
+    )
+    books_by_id = {b.id: b for b in get_books([m.calibre_book_id for m in memberships])}
+    entries = [
+        {"membership": m, "book": books_by_id.get(m.calibre_book_id)}
+        for m in memberships
+    ]
+    return render_template(
+        "tracker/shelf_order.html",
+        shelf=shelf,
+        entries=entries,
+        total=len(entries),
+    )
+
+
+@tracker_bp.post("/book/<int:book_id>/add-to-shelf")
+@login_required
+def book_add_to_shelf(book_id: int) -> Response:
+    """Book-detail-page version: shelf comes from the form, not the URL.
+
+    Avoids the JS hack of rewriting a form's action on every <select>
+    change, and degrades cleanly when JavaScript is disabled.
+    """
+    if get_book(book_id) is None:
+        abort(404)
+    shelf_id = request.form.get("shelf_id", type=int)
+    if shelf_id is None:
+        flash("Pick a shelf.", "danger")
+        return redirect(url_for("tracker.book_detail", book_id=book_id))
+    try:
+        add_book_to_shelf(current_user, shelf_id, book_id)
+    except ShelfValidationError as exc:
+        flash(str(exc), "danger")
+        return redirect(url_for("tracker.book_detail", book_id=book_id))
+    flash("Added to shelf.", "success")
+    return redirect(url_for("tracker.book_detail", book_id=book_id))
+
+
+@tracker_bp.post("/shelf/<int:shelf_id>/move-book")
+@login_required
+def shelf_move_book(shelf_id: int) -> Response:
+    """Move a book up or down within a shelf's manual sort order."""
+    book_id = request.form.get("book_id", type=int)
+    direction = request.form.get("direction", "")
+    if book_id is None:
+        abort(404)
+    try:
+        move_book_in_shelf(current_user, shelf_id, book_id, direction)
+    except ShelfValidationError as exc:
+        flash(str(exc), "danger")
+    return redirect(url_for("tracker.shelf_detail", shelf_id=shelf_id))
 
 
 # ── Search ──────────────────────────────────────────────────────────────────

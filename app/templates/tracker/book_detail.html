@@ -104,6 +104,103 @@
                       </button>
                     </form>
                   {% endif %}
+
+                  {#
+                    Add-to-shelf dropdown — id="add-to-shelf" picks up
+                    CWN's plex-icons "list" glyph via caliBlur.css line
+                    3296, and id="add-to-shelves" on the menu satisfies
+                    caliBlur.js's "is the dropdown empty?" check
+                    (caliBlur.js:439) so it does NOT add the
+                    ``empty-ul`` class that would zero out
+                    pointer-events on the toggle.
+
+                    type="button" keeps the toggle from submitting any
+                    wrapping form. caliBlur leaves <button>'s data-toggle
+                    alone (the strip pass only touches non-dropdown
+                    anchors at caliBlur.js:284).
+                  #}
+                  <div class="btn-group shelf-dropdown">
+                    <button type="button"
+                            id="add-to-shelf"
+                            class="btn action-icon-btn dropdown-toggle"
+                            data-toggle="dropdown"
+                            aria-haspopup="true"
+                            aria-expanded="false"
+                            title=""
+                            data-original-title="Add to shelf"
+                            aria-label="Add to shelf">
+                      <span class="glyphicon glyphicon-list"></span>
+                    </button>
+                    <ul id="add-to-shelves"
+                        class="dropdown-menu dropdown-menu-right shelf-dropdown-menu"
+                        aria-labelledby="add-to-shelf">
+                      {% set shelves_off_for_book = all_shelves | rejectattr('id', 'in', book_shelf_ids) | list %}
+                      {% if shelves_off_for_book %}
+                        {% for s in shelves_off_for_book %}
+                          <li>
+                            <form method="post"
+                                  action="{{ url_for('tracker.book_add_to_shelf', book_id=book.id) }}"
+                                  class="shelf-dropdown-form">
+                              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                              <input type="hidden" name="shelf_id" value="{{ s.id }}">
+                              <button type="submit" class="shelf-dropdown-item">
+                                <span class="shelf-dropdown-label">{{ s.name }}</span>
+                              </button>
+                            </form>
+                          </li>
+                        {% endfor %}
+                        <li role="separator" class="divider"></li>
+                      {% endif %}
+                      <li>
+                        <a href="{{ url_for('tracker.shelf_new') }}"
+                           class="shelf-dropdown-create">
+                          <span class="glyphicon glyphicon-plus" aria-hidden="true"></span>
+                          Create a Shelf
+                        </a>
+                      </li>
+                    </ul>
+                  </div>
+
+                  {% if book_shelf_ids %}
+                    {#
+                      Remove-from-shelf dropdown — only renders when the
+                      book is on at least one shelf, mirroring CWN's
+                      conditional ``#remove-from-shelves`` section.
+                    #}
+                    <div class="btn-group shelf-dropdown">
+                      <button type="button"
+                              id="remove-from-shelf"
+                              class="btn action-icon-btn dropdown-toggle"
+                              data-toggle="dropdown"
+                              aria-haspopup="true"
+                              aria-expanded="false"
+                              title=""
+                              data-original-title="Remove from shelf"
+                              aria-label="Remove from shelf">
+                        <span class="glyphicon glyphicon-remove"></span>
+                      </button>
+                      <ul id="remove-from-shelves-menu"
+                          class="dropdown-menu dropdown-menu-right shelf-dropdown-menu"
+                          aria-labelledby="remove-from-shelf">
+                        {% set shelves_on_for_book = all_shelves | selectattr('id', 'in', book_shelf_ids) | list %}
+                        {% for s in shelves_on_for_book %}
+                          <li>
+                            <form method="post"
+                                  action="{{ url_for('tracker.shelf_remove_book', shelf_id=s.id) }}"
+                                  class="shelf-dropdown-form">
+                              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                              <input type="hidden" name="book_id" value="{{ book.id }}">
+                              <input type="hidden" name="next" value="{{ request.path }}">
+                              <button type="submit" class="shelf-dropdown-item">
+                                <span class="glyphicon glyphicon-ok shelf-dropdown-tick" aria-hidden="true"></span>
+                                <span class="shelf-dropdown-label">{{ s.name }}</span>
+                              </button>
+                            </form>
+                          </li>
+                        {% endfor %}
+                      </ul>
+                    </div>
+                  {% endif %}
                 </div>
               </div>
             </div>
@@ -140,6 +237,19 @@
                   <span class="meta-value">{{ book.isbn }}</span>
                 </div>
               {% endif %}
+              {% set shelves_on = all_shelves | selectattr('id', 'in', book_shelf_ids) | list %}
+              {% if shelves_on %}
+                <div class="shelves meta-chip">
+                  <span class="meta-label">Shelves:</span>
+                  <span class="meta-value">
+                    {% for s in shelves_on %}
+                      <a class="meta-pill shelf-chip"
+                         {% if s.color_hex %}style="border-color: {{ s.color_hex }}88;"{% endif %}
+                         href="{{ url_for('tracker.shelf_detail', shelf_id=s.id) }}">{{ s.name }}</a>
+                    {% endfor %}
+                  </span>
+                </div>
+              {% endif %}
               {% if book.tags %}
                 <div class="tags meta-chip">
                   <span class="glyphicon glyphicon-tags" aria-hidden="true"></span>
@@ -159,6 +269,7 @@
                 </div>
               {% endif %}
             </div>
+
           </div>
         </div>
 

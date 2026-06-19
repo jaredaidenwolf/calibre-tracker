@@ -10,6 +10,10 @@ An item is rendered as "active" when ``request.endpoint`` matches
 :attr:`SidebarItem.endpoint` *and* :attr:`SidebarItem.match_kwargs` (if
 any) match against the current request's ``view_args`` + query string.
 Items without an endpoint (placeholders for unbuilt phases) are inert.
+
+The Shelves section is populated dynamically per request from the
+logged-in user's own ``Shelf`` rows, matching the way CWN renders its
+sidebar — a "+ Create a Shelf" affordance plus one item per shelf.
 """
 
 from __future__ import annotations
@@ -17,6 +21,9 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 from flask import request, url_for
+from flask_login import current_user
+
+from .models import Shelf
 
 
 @dataclass(frozen=True)
@@ -37,6 +44,11 @@ class SidebarItem:
     """``title=`` attribute / tooltip. Used to label placeholders
     ("Coming in Phase 7")."""
 
+    css_class: str | None = None
+    """Optional CSS class on the wrapping ``<li>``. Used for caliBlur's
+    ``.create-shelf`` affordance, which it paints differently from a
+    normal nav item."""
+
 
 @dataclass(frozen=True)
 class SidebarSection:
@@ -44,6 +56,55 @@ class SidebarSection:
 
     title: str
     items: tuple[SidebarItem, ...]
+
+
+def _shelf_items() -> tuple[SidebarItem, ...]:
+    """Build the Shelves section: one item per shelf + the "create" link.
+
+    Mirrors CWN's sidebar layout (Calibre-Web vendors a ``shelf.create``
+    affordance plus a flat list of shelves under the section header).
+    Unauthenticated requests get an empty tuple — the section header is
+    only rendered when there's something below it.
+    """
+    if not getattr(current_user, "is_authenticated", False):
+        return ()
+    shelves = (
+        Shelf.query.filter_by(user_id=current_user.id)
+        .order_by(Shelf.name.asc())
+        .all()
+    )
+    items: list[SidebarItem] = [
+        SidebarItem(
+            label=shelf.name,
+            glyph="glyphicon-list",
+            endpoint="tracker.shelf_detail",
+            endpoint_kwargs={"shelf_id": str(shelf.id)},
+        )
+        for shelf in shelves
+    ]
+    # "+ Create a Shelf" and "Reorder Shelves" sit last, styled small/
+    # inline via caliBlur's ``.create-shelf`` class (defined in
+    # caliBlur.css around line 1435). The "+" glyph for Create is
+    # painted by the same caliBlur rule; the sidebar template skips the
+    # inline glyphicon when ``css_class == 'create-shelf'`` so we don't
+    # double up.
+    items.append(
+        SidebarItem(
+            label="Create a Shelf",
+            glyph="glyphicon-plus",
+            endpoint="tracker.shelf_new",
+            css_class="create-shelf",
+        )
+    )
+    items.append(
+        SidebarItem(
+            label="Reorder Shelves",
+            glyph="glyphicon-resize-vertical",
+            endpoint="tracker.shelves_reorder",
+            css_class="reorder-shelves",
+        )
+    )
+    return tuple(items)
 
 
 def sidebar_sections() -> tuple[SidebarSection, ...]:
@@ -105,13 +166,7 @@ def sidebar_sections() -> tuple[SidebarSection, ...]:
         ),
         SidebarSection(
             title="Shelves",
-            items=(
-                SidebarItem(
-                    label="Shelves",
-                    glyph="glyphicon-list",
-                    title="Coming in Phase 8",
-                ),
-            ),
+            items=_shelf_items(),
         ),
         SidebarSection(
             title="Stats",

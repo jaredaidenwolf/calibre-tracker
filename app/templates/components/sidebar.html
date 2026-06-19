@@ -6,22 +6,37 @@
     <ul class="list-unstyled" id="scnd-nav"
         intent in-standard-append="nav.navigation" in-mobile-after="#main-nav" in-mobile-class="nav navbar-nav">
       {% for section in tracker_sidebar_sections() %}
-        <li class="nav-head hidden-xs">{{ section.title }}</li>
-        {% for item in section.items %}
-          {% set url = tracker_sidebar_url(item) %}
-          <li{% if tracker_sidebar_active(item) %} class="active"{% endif %}>
-            {% if url %}
-              <a href="{{ url }}"{% if item.title %} title="{{ item.title }}"{% endif %}>
-                <span class="glyphicon {{ item.glyph }}"></span> {{ item.label }}
-              </a>
-            {% else %}
-              <a href="#" class="disabled" title="{{ item.title or 'Not available yet' }}"
-                 onclick="event.preventDefault();">
-                <span class="glyphicon {{ item.glyph }}"></span> {{ item.label }}
-              </a>
-            {% endif %}
-          </li>
-        {% endfor %}
+        {# Skip a section header when the section has no items (e.g.
+           the dynamic Shelves section for users with no shelves yet —
+           the "+ Create a Shelf" affordance is always present, so this
+           shouldn't fire in practice). #}
+        {% if section.items %}
+          <li class="nav-head hidden-xs">{{ section.title }}</li>
+          {% for item in section.items %}
+            {% set url = tracker_sidebar_url(item) %}
+            {% set li_classes = [] %}
+            {% if item.css_class %}{% set _ = li_classes.append(item.css_class) %}{% endif %}
+            {% if tracker_sidebar_active(item) %}{% set _ = li_classes.append('active') %}{% endif %}
+            <li{% if li_classes %} class="{{ li_classes | join(' ') }}"{% endif %}>
+              {% if url %}
+                <a href="{{ url }}"{% if item.title %} title="{{ item.title }}"{% endif %}>
+                  {# caliBlur's ``.create-shelf a:before`` already injects
+                     a plex-icons "+" glyph; skip the inline glyphicon so
+                     we don't render the same icon twice. #}
+                  {% if item.css_class != 'create-shelf' %}
+                    <span class="glyphicon {{ item.glyph }}"></span>
+                  {% endif %}
+                  {{ item.label }}
+                </a>
+              {% else %}
+                <a href="#" class="disabled" title="{{ item.title or 'Not available yet' }}"
+                   onclick="event.preventDefault();">
+                  <span class="glyphicon {{ item.glyph }}"></span> {{ item.label }}
+                </a>
+              {% endif %}
+            </li>
+          {% endfor %}
+        {% endif %}
       {% endfor %}
     </ul>
   </nav>

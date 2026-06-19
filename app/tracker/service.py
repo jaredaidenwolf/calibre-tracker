@@ -23,7 +23,16 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 
 from ..extensions import db
-from .models import NOTE_TYPES, READING_STATUSES, Note, Quote, ReadingLog, User
+from .models import (
+    NOTE_TYPES,
+    READING_STATUSES,
+    Note,
+    Quote,
+    ReadingLog,
+    Shelf,
+    ShelfBook,
+    User,
+)
 
 
 def _utcnow_naive() -> datetime:
@@ -315,17 +324,28 @@ class AnnotationValidationError(ValueError):
     """Raised when an inbound quote or note payload fails validation."""
 
 
-def _clean_text(raw: object, field: str, *, required: bool = False) -> str | None:
-    """Strip a free-text field. Return ``None`` if blank (unless required)."""
+def _clean_text(
+    raw: object,
+    field: str,
+    *,
+    required: bool = False,
+    error_cls: type[ValueError] = AnnotationValidationError,
+) -> str | None:
+    """Strip a free-text field. Return ``None`` if blank (unless required).
+
+    ``error_cls`` lets each caller raise its own domain-specific error
+    type — annotations (quotes/notes), shelves, etc. — instead of every
+    payload-validation site funnelling through ``AnnotationValidationError``.
+    """
     if raw is None:
         text = ""
     elif isinstance(raw, str):
         text = raw.strip()
     else:
-        raise AnnotationValidationError(f"{field} must be text")
+        raise error_cls(f"{field} must be text")
     if not text:
         if required:
-            raise AnnotationValidationError(f"{field} is required")
+            raise error_cls(f"{field} is required")
         return None
     return text
 
@@ -441,6 +461,187 @@ def delete_note(user: User, note_id: int) -> bool:
     if note is None or note.user_id != user.id:
         return False
     db.session.delete(note)
+    db.session.commit()
+    return True
+
+
+# ── Shelves (Phase 8) ───────────────────────────────────────────────────────
+
+
+class ShelfValidationError(ValueError):
+    """Raised when a shelf or shelf-membership payload fails validation."""
+
+
+_HEX_COLOR_LENGTH = 7  # ``#`` + RRGGBB; matches the column width
+
+
+def _parse_shelf_name(raw: object, *, existing_id: int | None, user_id: int) -> str:
+    """Trim + uniqueness-check a shelf name for ``user_id``.
+
+    The uniqueness constraint is also enforced at the DB level via
+    ``uq_shelves_user_name`` — checking here gives a friendlier error
+    than catching the IntegrityError.
+    """
+    text = _clean_text(raw, "name", required=True, error_cls=ShelfValidationError)
+    if len(text) > 120:
+        raise ShelfValidationError("name must be ≤ 120 characters")
+    clash = (
+        db.session.query(Shelf)
+        .filter(Shelf.user_id == user_id, Shelf.name == text, Shelf.id != existing_id)
+        .first()
+    )
+    if clash is not None:
+        raise ShelfValidationError(f"a shelf named '{text}' already exists")
+    return text
+
+
+def _parse_color_hex(raw: object) -> str | None:
+    """Accept ``#RRGGBB`` (the only format the HTML5 colour input emits) or None."""
+    if raw is None or raw == "":
+        return None
+    if not isinstance(raw, str):
+        raise ShelfValidationError("color must be a #RRGGBB string")
+    text = raw.strip()
+    if not text:
+        return None
+    if (
+        len(text) != _HEX_COLOR_LENGTH
+        or not text.startswith("#")
+        or not all(c in "0123456789abcdefABCDEF" for c in text[1:])
+    ):
+        raise ShelfValidationError("color must look like '#RRGGBB'")
+    return text.lower()
+
+
+def create_shelf(user: User, data: dict) -> Shelf:
+    """Insert a new shelf. ``name`` is required and unique per user."""
+    shelf = Shelf(
+        user_id=user.id,
+        name=_parse_shelf_name(data.get("name"), existing_id=None, user_id=user.id),
+        description=_clean_text(
+            data.get("description"), "description", error_cls=ShelfValidationError
+        ),
+        color_hex=_parse_color_hex(data.get("color_hex")),
+    )
+    db.session.add(shelf)
+    db.session.commit()
+    return shelf
+
+
+def update_shelf(user: User, shelf_id: int, data: dict) -> Shelf:
+    """Amend a shelf's metadata. Authorises by ``user_id``."""
+    shelf = db.session.get(Shelf, shelf_id)
+    if shelf is None or shelf.user_id != user.id:
+        raise ShelfValidationError("shelf not found")
+    shelf.name = _parse_shelf_name(
+        data.get("name"), existing_id=shelf.id, user_id=user.id
+    )
+    shelf.description = _clean_text(
+        data.get("description"), "description", error_cls=ShelfValidationError
+    )
+    shelf.color_hex = _parse_color_hex(data.get("color_hex"))
+    db.session.commit()
+    return shelf
+
+
+def delete_shelf(user: User, shelf_id: int) -> bool:
+    """Delete a shelf + its ShelfBook membership rows (via cascade).
+
+    Returns ``False`` if the shelf doesn't exist or belongs to someone else.
+    """
+    shelf = db.session.get(Shelf, shelf_id)
+    if shelf is None or shelf.user_id != user.id:
+        return False
+    db.session.delete(shelf)
+    db.session.commit()
+    return True
+
+
+def _owned_shelf(user: User, shelf_id: int) -> Shelf:
+    """Resolve a shelf belonging to ``user`` or raise."""
+    shelf = db.session.get(Shelf, shelf_id)
+    if shelf is None or shelf.user_id != user.id:
+        raise ShelfValidationError("shelf not found")
+    return shelf
+
+
+def add_book_to_shelf(user: User, shelf_id: int, calibre_book_id: int) -> ShelfBook:
+    """Add a Calibre book to a shelf — idempotent.
+
+    A book can belong to multiple shelves (no uniqueness across shelves);
+    the constraint we honour is one row per (shelf, book) pair, so calling
+    this twice with the same args returns the existing row instead of
+    raising.
+    """
+    shelf = _owned_shelf(user, shelf_id)
+    existing = (
+        db.session.query(ShelfBook)
+        .filter_by(shelf_id=shelf.id, calibre_book_id=calibre_book_id)
+        .first()
+    )
+    if existing is not None:
+        return existing
+    # New row goes to the end of the manual ordering.
+    last_order = (
+        db.session.query(db.func.max(ShelfBook.sort_order))
+        .filter_by(shelf_id=shelf.id)
+        .scalar()
+    )
+    membership = ShelfBook(
+        shelf_id=shelf.id,
+        calibre_book_id=calibre_book_id,
+        sort_order=(last_order or 0) + 1,
+    )
+    db.session.add(membership)
+    db.session.commit()
+    return membership
+
+
+def remove_book_from_shelf(user: User, shelf_id: int, calibre_book_id: int) -> bool:
+    """Drop a book's membership row. Returns ``False`` if no such row."""
+    shelf = _owned_shelf(user, shelf_id)
+    row = (
+        db.session.query(ShelfBook)
+        .filter_by(shelf_id=shelf.id, calibre_book_id=calibre_book_id)
+        .first()
+    )
+    if row is None:
+        return False
+    db.session.delete(row)
+    db.session.commit()
+    return True
+
+
+def move_book_in_shelf(
+    user: User, shelf_id: int, calibre_book_id: int, direction: str
+) -> bool:
+    """Swap a book's ``sort_order`` with its neighbour above (``up``) or
+    below (``down``). Returns ``False`` when there's no neighbour to
+    swap with (book at the top with ``up``, bottom with ``down``)."""
+    if direction not in {"up", "down"}:
+        raise ShelfValidationError("direction must be 'up' or 'down'")
+    shelf = _owned_shelf(user, shelf_id)
+    rows = (
+        db.session.query(ShelfBook)
+        .filter_by(shelf_id=shelf.id)
+        .order_by(ShelfBook.sort_order.asc(), ShelfBook.id.asc())
+        .all()
+    )
+    try:
+        idx = next(
+            i for i, r in enumerate(rows) if r.calibre_book_id == calibre_book_id
+        )
+    except StopIteration as exc:
+        raise ShelfValidationError("book is not on this shelf") from exc
+
+    neighbour_idx = idx - 1 if direction == "up" else idx + 1
+    if neighbour_idx < 0 or neighbour_idx >= len(rows):
+        return False
+
+    rows[idx].sort_order, rows[neighbour_idx].sort_order = (
+        rows[neighbour_idx].sort_order,
+        rows[idx].sort_order,
+    )
     db.session.commit()
     return True
 

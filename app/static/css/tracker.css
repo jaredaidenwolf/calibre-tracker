@@ -1005,6 +1005,455 @@ body.blur .discover .row {
 }
 
 
+/* ── Shelves (Phase 8) ───────────────────────────────────────────────────── */
+
+/* /shelves index — top toolbar + a list of shelf-card chips. */
+.tracker-shelves-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+.tracker-shelves-total {
+  font-size: 1.25rem;
+  color: hsla(0, 0%, 100%, 0.85);
+}
+
+.tracker-shelves-section {
+  margin-bottom: 40px;
+}
+
+.shelf-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 1rem;
+}
+
+.shelf-card {
+  background: rgba(0, 0, 0, 0.20);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 12px;
+  overflow: hidden;
+  transition: transform 0.15s ease, border-color 0.15s ease;
+}
+
+.shelf-card:hover {
+  transform: translateY(-2px);
+  border-color: rgba(255, 255, 255, 0.2);
+}
+
+.shelf-card-link {
+  display: flex;
+  align-items: stretch;
+  gap: 1rem;
+  padding: 1rem;
+  color: inherit;
+  text-decoration: none;
+}
+
+.shelf-card-link:hover {
+  color: #fff;
+  text-decoration: none;
+}
+
+/* Coloured swatch on the left of each shelf card — accent only,
+   inherits the variable if no per-shelf color is set. */
+.shelf-card-swatch {
+  flex: 0 0 8px;
+  width: 8px;
+  background: var(--tracker-accent);
+  border-radius: 4px;
+}
+
+.shelf-card-meta {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.shelf-card-name {
+  font-size: 1.25rem;
+  font-weight: 600;
+  line-height: 1.3;
+}
+
+.shelf-card-count {
+  font-size: 1.25rem;
+  color: hsla(0, 0%, 100%, 0.45);
+  font-variant-numeric: tabular-nums;
+}
+
+.shelf-card-description {
+  font-size: 1rem;
+  color: hsla(0, 0%, 100%, 0.65);
+  line-height: 1.4;
+  margin-top: 0.25rem;
+}
+
+/* /shelves/new + /shelf/<id>/edit form layout. */
+.shelf-edit-form-wrap {
+  max-width: 640px;
+  background: rgba(0, 0, 0, 0.20);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 12px;
+  padding: 2rem;
+}
+
+.shelf-color-input {
+  width: 80px;
+  height: 40px;
+  padding: 0.25rem;
+}
+
+.shelf-delete-form {
+  margin-top: 2rem;
+  padding-top: 1.5rem;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+/* /shelf/<id> detail toolbar: swatch + count + description left,
+   sort/multi/settings controls right. */
+.tracker-shelf-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+.tracker-shelf-toolbar-left {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  flex-wrap: wrap;
+  flex: 1 1 auto;
+}
+
+.tracker-shelf-toolbar-controls {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.tracker-shelf-toolbar-controls .form-group {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin: 0;
+}
+
+.tracker-shelf-toolbar-controls .form-control {
+  width: auto;
+  display: inline-block;
+}
+
+.shelf-description {
+  font-size: 1.25rem;
+  color: hsla(0, 0%, 100%, 0.7);
+  font-style: italic;
+}
+
+.tracker-shelf-section {
+  margin-bottom: 40px;
+}
+
+/* Shelf action buttons in the .discover banner — CWN's body.shelf
+   rules (caliBlur.css lines 3666–3753) paint the icons via plex-icons
+   pseudo-elements as long as the buttons match these selectors:
+     a[href*=edit]      → pencil
+     a[href*=order]     → reorder bars
+     [data-target="#DeleteShelfDialog"] → trash (red on hover)
+
+   CaliBlur positions the group fixed at ``top: 60px; right: 0`` and
+   each button at 50x60. We rely entirely on those caliBlur rules; the
+   tracker.css below is just minor follow-up to keep our inline form
+   wrapper from breaking the flex/float layout. */
+.shelf-btn-group {
+  /* CaliBlur positions this group via body.shelf > .discover >
+     .shelf-btn-group; we don't need to fight that. */
+}
+
+.shelf-btn-group .tracker-inline-action-form {
+  display: inline;
+  float: right;
+  margin: 0;
+}
+
+.shelf-book-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.shelf-book-row {
+  display: flex;
+  align-items: center;
+  gap: 1.5rem;
+  padding: 1rem;
+  background: rgba(0, 0, 0, 0.20);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 12px;
+}
+
+.shelf-book-cover {
+  flex: 0 0 80px;
+  width: 80px;
+  display: block;
+  background: #1a1a26;
+  border-radius: 4px;
+  overflow: hidden;
+  text-decoration: none;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+}
+
+.shelf-book-cover img {
+  width: 100%;
+  height: auto;
+  display: block;
+}
+
+.shelf-book-cover .cover-fallback {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  aspect-ratio: 2 / 3;
+  padding: 0.5rem;
+  text-align: center;
+  color: hsla(0, 0%, 100%, 0.6);
+  font-size: 0.8rem;
+  background: transparent;
+  box-shadow: none;
+}
+
+.shelf-book-tombstone {
+  opacity: 0.4;
+}
+
+.shelf-book-meta {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.shelf-book-link {
+  color: inherit;
+  text-decoration: none;
+  display: block;
+}
+
+.shelf-book-link:hover {
+  color: #fff;
+  text-decoration: none;
+}
+
+.shelf-book-title {
+  display: block;
+  font-size: 1.25rem;
+  font-weight: 600;
+  margin-bottom: 0.25rem;
+}
+
+.shelf-book-author {
+  display: block;
+  font-size: 1.25rem;
+  color: hsla(0, 0%, 100%, 0.45);
+}
+
+.shelf-book-actions {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+}
+
+/* Shelves chip in the book detail metadata row — clickable pill that
+   navigates to the shelf detail. Border can be tinted by the per-shelf
+   colour (set inline in the template). */
+.meta-chip.shelves .meta-value {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+
+.shelf-chip {
+  text-decoration: none;
+  color: inherit;
+  border-color: rgba(255, 255, 255, 0.2);
+}
+
+.shelf-chip:hover {
+  color: #fff;
+  text-decoration: none;
+  background: rgba(255, 255, 255, 0.12);
+}
+
+/* "Add to shelf" + "Remove from shelf" dropdowns — Bootstrap 3 chrome
+   retinted for the dark glass card. The toggles are action-icon-btn
+   sized so they sit cleanly in the action row. CaliBlur ships a
+   ``#add-to-shelf`` rule (caliBlur.css line 3274) that hard-codes
+   50x60 + ``color: transparent``; we override the geometry while
+   keeping the inner ``glyphicon-list:before`` content rule that paints
+   CWN's plex-icons "list" glyph. */
+#add-to-shelf.action-icon-btn,
+#remove-from-shelf.action-icon-btn {
+  width: 44px !important;
+  height: 44px !important;
+  padding: 0 !important;
+  margin: 0 !important;
+  overflow: visible !important;
+  /* color: transparent on the parent is fine — the glyph's color is
+     set on the inner <span> by CWN's rule. */
+}
+
+#add-to-shelf.action-icon-btn > span,
+#remove-from-shelf.action-icon-btn > span {
+  color: rgba(255, 255, 255, 0.85);
+  font-size: 18px;
+  line-height: 44px;
+  width: 100%;
+}
+
+#add-to-shelf.action-icon-btn:hover > span,
+#remove-from-shelf.action-icon-btn:hover > span {
+  color: #fff;
+}
+
+.shelf-dropdown {
+  display: inline-block;
+}
+
+.shelf-dropdown > .dropdown-toggle::after {
+  /* Hide Bootstrap's caret triangle; the glyphicon already signals
+     the menu's purpose. */
+  display: none;
+}
+
+.shelf-dropdown-menu {
+  min-width: 220px;
+  max-height: 360px;
+  overflow-y: auto;
+  background: #1a1a26;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 8px;
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.5);
+  padding: 0.5rem 0;
+  /* Position right under the toggle — caliBlur's stock dropdown menus
+     leave a big gap that read as "floating away from the button". */
+  margin-top: 4px;
+}
+
+.shelf-dropdown-menu > li > a,
+.shelf-dropdown-menu .shelf-dropdown-item {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  width: 100%;
+  background: none;
+  border: none;
+  padding: 0.5rem 1rem;
+  color: hsla(0, 0%, 100%, 0.85);
+  font-size: 1rem;
+  text-align: left;
+  cursor: pointer;
+  transition: background-color 0.1s ease, color 0.1s ease;
+}
+
+.shelf-dropdown-menu > li > a:hover,
+.shelf-dropdown-menu > li > a:focus,
+.shelf-dropdown-menu .shelf-dropdown-item:hover,
+.shelf-dropdown-menu .shelf-dropdown-item:focus {
+  background-color: rgba(255, 255, 255, 0.08);
+  color: #fff;
+  outline: none;
+}
+
+.shelf-dropdown-tick {
+  color: var(--tracker-accent);
+  font-size: 0.85em;
+  width: 16px;
+  text-align: center;
+}
+
+.shelf-dropdown-tick-placeholder {
+  display: inline-block;
+  width: 16px;
+}
+
+.shelf-dropdown-form {
+  margin: 0;
+}
+
+.shelf-dropdown-menu > li.divider {
+  background: rgba(255, 255, 255, 0.08);
+  margin: 0.25rem 0;
+}
+
+.shelf-dropdown-create {
+  color: var(--tracker-accent) !important;
+  font-weight: 500;
+}
+
+/* Sidebar "+ Create a Shelf" and "Reorder Shelves" affordances. CaliBlur's
+   ``.navigation .create-shelf a`` ships at ``font-size: 12px`` with a
+   ``\EA13`` plex-icons "+" prepended via ::before — readable but tiny
+   next to the regular nav items. We override the size up to ~14px and
+   give the "Reorder" link the same baseline so the two read as a pair.
+   ``!important`` is needed because caliBlur's selector also has !important
+   on the font-size.
+*/
+.navigation li.create-shelf,
+.navigation li.reorder-shelves {
+  margin-top: 0.25rem;
+  /* Width override — caliBlur sets ``.create-shelf`` to 25px (icon-only)
+     because their original markup is a tiny floating button; we want
+     the full inline link. */
+  width: auto !important;
+  min-height: auto;
+  max-height: none;
+  margin-right: 0;
+  margin-bottom: 0;
+}
+
+.navigation li.create-shelf a,
+.navigation li.reorder-shelves a {
+  display: inline-block;
+  width: auto !important;
+  max-height: none !important;
+  font-size: 14px !important;
+  line-height: 1.4 !important;
+  padding: 6px 12px !important;
+  opacity: 0.75;
+  white-space: nowrap;
+  border-radius: 4px;
+}
+
+.navigation li.create-shelf a:hover,
+.navigation li.reorder-shelves a:hover {
+  opacity: 1;
+  background-color: hsla(0, 0%, 100%, 0.08) !important;
+  color: #fff !important;
+}
+
+/* The Reorder Shelves link doesn't get caliBlur's plex-icons "+" prefix
+   (only ``.create-shelf`` does), so render our own glyphicon-resize-
+   vertical from the inline span instead. */
+.navigation li.reorder-shelves a .glyphicon {
+  font-size: 0.95em;
+  margin-right: 8px;
+  opacity: 0.7;
+}
+
+
 /* Mobile: stack cover above meta, tighten paddings. Pulled from CWN's
    media queries (lines 397-475 of detail.html) with the CWN-specific
    selectors stripped out. */

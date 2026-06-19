@@ -1,0 +1,48 @@
+{% extends "base.html" %}
+
+{% block title %}Shelves{% endblock %}
+{% block body_class %}tracker-shelves-index{% endblock %}
+
+{% block body %}
+{#
+  Mirrors quotes.html / dashboard.html: .discover wraps only the page-
+  title banner; the toolbar + section live as siblings outside so the
+  35px horizontal margin lines up with the rest of the tracker pages.
+#}
+<div class="discover tracker-page-banner">
+  <h2>Shelves</h2>
+</div>
+
+<div class="tracker-toolbar tracker-shelves-toolbar">
+  <div class="tracker-shelves-total">{{ total }} shelf{{ '' if total == 1 else 'es' }}</div>
+  <a href="{{ url_for('tracker.shelf_new') }}" class="btn btn-primary">
+    <span class="glyphicon glyphicon-plus"></span> New shelf
+  </a>
+</div>
+
+<section class="tracker-section tracker-shelves-section">
+  {% if paired %}
+    <ul class="shelf-list">
+      {% for entry in paired %}
+        {% set s = entry.shelf %}
+        <li class="shelf-card">
+          <a href="{{ url_for('tracker.shelf_detail', shelf_id=s.id) }}" class="shelf-card-link">
+            <span class="shelf-card-swatch"
+                  {% if s.color_hex %}style="background-color: {{ s.color_hex }};"{% endif %}
+                  aria-hidden="true"></span>
+            <span class="shelf-card-meta">
+              <span class="shelf-card-name">{{ s.name }}</span>
+              <span class="shelf-card-count">{{ entry.book_count }} book{{ '' if entry.book_count == 1 else 's' }}</span>
+              {% if s.description %}
+                <span class="shelf-card-description">{{ s.description }}</span>
+              {% endif %}
+            </span>
+          </a>
+        </li>
+      {% endfor %}
+    </ul>
+  {% else %}
+    <p class="tracker-empty">No shelves yet. Create one to group books however you like.</p>
+  {% endif %}
+</section>
+{% endblock %}

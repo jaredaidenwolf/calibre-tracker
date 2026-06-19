@@ -1,0 +1,115 @@
+{% extends "base.html" %}
+
+{% block title %}{{ shelf.name }} — Shelf{% endblock %}
+{# Including ``shelf`` in body_class triggers caliBlur's body.shelf
+   rules (banner h2 fixed at top:60px + shelf-btn-group positioning). #}
+{% block body_class %}tracker-shelf shelf{% endblock %}
+
+{% block body %}
+{#
+  Mirrors CWN's shelf detail layout:
+    .discover > h2  (fixed banner)
+            > .shelf-btn-group  (Edit / Delete / Reorder)
+    .tracker-toolbar  (sort / multi-select / settings — placeholder)
+    .tracker-section > grid of book_card.html
+
+  The action button attributes are load-bearing — caliBlur picks them
+  out by ``[href*=edit]``, ``[href*=order]``, and
+  ``[data-target="#DeleteShelfDialog"]`` to paint their plex-icons
+  glyphs (caliBlur.css lines 3666–3753). The data-target on delete is
+  there purely so the styling matches; the form still submits inline.
+  No Download button per the CWN parity request.
+#}
+<div class="discover tracker-page-banner">
+  <h2>{{ shelf.name }}</h2>
+
+  <div class="shelf-btn-group btn-group" role="group" aria-label="Shelf actions">
+    <a href="{{ url_for('tracker.shelf_edit', shelf_id=shelf.id) }}"
+       class="btn"
+       data-toggle="tooltip" data-placement="bottom"
+       title="" data-original-title="Edit shelf"
+       aria-label="Edit shelf">
+      <span class="glyphicon glyphicon-pencil"></span>
+    </a>
+    <a href="{{ url_for('tracker.shelf_order', shelf_id=shelf.id) }}"
+       class="btn"
+       data-toggle="tooltip" data-placement="bottom"
+       title="" data-original-title="Reorder books"
+       aria-label="Reorder books">
+      <span class="glyphicon glyphicon-resize-vertical"></span>
+    </a>
+    <form method="post" action="{{ url_for('tracker.shelf_delete', shelf_id=shelf.id) }}"
+          class="tracker-inline-action-form"
+          onsubmit="return confirm('Delete this shelf?\n\nBooks stay in your library — only the shelf and its book-list membership are removed.');">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <button type="submit"
+              data-target="#DeleteShelfDialog"
+              class="btn"
+              data-toggle="tooltip" data-placement="bottom"
+              title="" data-original-title="Delete shelf"
+              aria-label="Delete shelf">
+        <span class="glyphicon glyphicon-trash"></span>
+      </button>
+    </form>
+  </div>
+</div>
+
+{#
+  Sort / multi-select / settings toolbar. Styled like .tracker-toolbar
+  on the dashboard. Controls are placeholders for now — the data
+  layer doesn't yet ship a "shelf sort order" preference, multi-select
+  bulk actions, or a per-user view-mode setting. UI is here so the
+  layout matches CWN; wiring follows.
+#}
+<div class="tracker-toolbar tracker-shelf-toolbar">
+  <div class="tracker-shelf-toolbar-left">
+    {% if shelf.color_hex %}
+      <span class="shelf-card-swatch" style="background-color: {{ shelf.color_hex }};" aria-hidden="true"></span>
+    {% endif %}
+    <div class="tracker-shelves-total">{{ total }} book{{ '' if total == 1 else 's' }}</div>
+    {% if shelf.description %}
+      <div class="shelf-description">{{ shelf.description }}</div>
+    {% endif %}
+  </div>
+  <div class="tracker-shelf-toolbar-controls">
+    <div class="form-group form-inline-control" title="Sort order (coming soon)">
+      <label for="shelf-sort">Sort:</label>
+      <select id="shelf-sort" class="form-control" disabled>
+        <option>Manual</option>
+      </select>
+    </div>
+    <button type="button" class="btn btn-default" disabled title="Multi-select (coming soon)">
+      <span class="glyphicon glyphicon-check"></span> Select
+    </button>
+    <button type="button" class="btn btn-default" disabled title="View settings (coming soon)">
+      <span class="glyphicon glyphicon-cog"></span>
+    </button>
+  </div>
+</div>
+
+<section class="tracker-section tracker-shelf-section">
+  {% if entries %}
+    <div class="row display-flex">
+      {% for entry in entries %}
+        {% if entry.book %}
+          <div class="book session col-xs-6 col-sm-3 col-lg-2 tracker-book-col" id="books">
+            {% set book = entry.book %}
+            {% include 'components/book_card.html' %}
+          </div>
+        {% else %}
+          <div class="col-xs-6 col-sm-3 col-lg-2 book session tracker-tombstone" id="books">
+            <div class="cover">
+              <div class="cover-fallback">Book no longer in library</div>
+            </div>
+            <div class="meta">
+              <p class="title">id {{ entry.membership.calibre_book_id }}</p>
+            </div>
+          </div>
+        {% endif %}
+      {% endfor %}
+    </div>
+  {% else %}
+    <p class="tracker-empty">No books on this shelf yet. Open a book and use the action-bar "Add to shelf" button.</p>
+  {% endif %}
+</section>
+{% endblock %}

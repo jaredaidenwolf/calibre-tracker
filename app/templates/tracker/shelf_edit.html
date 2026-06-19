@@ -1,0 +1,49 @@
+{% extends "base.html" %}
+
+{% set is_new = mode == 'new' %}
+{% set page_heading = 'Create a shelf' if is_new else 'Edit shelf' %}
+{% set form_action = url_for('tracker.shelf_create') if is_new
+                    else url_for('tracker.shelf_update', shelf_id=shelf.id) %}
+
+{% block title %}{{ page_heading }}{% endblock %}
+{% block body_class %}tracker-shelves-edit{% endblock %}
+
+{% block body %}
+<div class="discover tracker-page-banner">
+  <h2>{{ page_heading }}</h2>
+</div>
+
+<section class="tracker-section tracker-shelves-section">
+  <div class="shelf-edit-form-wrap">
+    <form class="log-form" method="post" action="{{ form_action }}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+
+      <div class="form-group">
+        <label for="name">Name</label>
+        <input type="text" name="name" id="name" class="form-control"
+               required maxlength="120"
+               placeholder="e.g. Hugo Winners, Beach Reads, Comfort Rereads"
+               value="{{ shelf.name if shelf else '' }}">
+      </div>
+
+      <div class="form-group">
+        <label for="description">Description <small class="form-help">(optional)</small></label>
+        <textarea name="description" id="description" rows="3" class="form-control"
+                  placeholder="What's this shelf for?">{{ shelf.description if shelf and shelf.description else '' }}</textarea>
+      </div>
+
+      <div class="form-group">
+        <label for="color_hex">Color <small class="form-help">(optional accent)</small></label>
+        <input type="color" name="color_hex" id="color_hex" class="form-control shelf-color-input"
+               value="{{ shelf.color_hex if shelf and shelf.color_hex else '#c9a96e' }}">
+      </div>
+
+      <div class="form-actions">
+        <button type="submit" class="btn btn-primary">{% if is_new %}Create{% else %}Save{% endif %}</button>
+        <a href="{% if is_new %}{{ url_for('tracker.shelves_index') }}{% else %}{{ url_for('tracker.shelf_detail', shelf_id=shelf.id) }}{% endif %}"
+           class="btn btn-default">Cancel</a>
+      </div>
+    </form>
+  </div>
+</section>
+{% endblock %}
