@@ -28,14 +28,22 @@ from flask import (
 from flask_login import current_user, login_required
 
 from ..calibre.repository import get_book, get_books, search_books
-from ..extensions import csrf
-from .models import ReadingLog
+from ..extensions import csrf, db
+from .models import Note, Quote, ReadingLog
 from .service import (
+    AnnotationValidationError,
     ReadingLogValidationError,
+    create_note,
+    create_quote,
     create_read_attempt,
+    delete_note,
+    delete_quote,
     delete_reading_log,
     maybe_run_cwn_import,
     quick_status_change,
+    toggle_quote_favourite,
+    update_note,
+    update_quote,
     update_read_attempt,
     upsert_reading_log,
 )
@@ -257,7 +265,7 @@ def _form_payload() -> dict:
 @tracker_bp.get("/book/<int:book_id>")
 @login_required
 def book_detail(book_id: int) -> Response:
-    """Read-only display of a book + reading-activity table.
+    """Read-only display of a book + reading-activity table + quotes + notes.
 
     The reading-log form lives on :func:`book_edit` (new attempt) and
     :func:`book_edit_entry` (amend a specific past attempt). Keeping
@@ -271,11 +279,23 @@ def book_detail(book_id: int) -> Response:
     # Current row = most recently created. Drives the status chip up top
     # + the rating-under-author display.
     current = attempts[-1] if attempts else None
+    quotes = (
+        Quote.query.filter_by(user_id=current_user.id, calibre_book_id=book_id)
+        .order_by(Quote.is_favourite.desc(), Quote.created_at.desc())
+        .all()
+    )
+    notes = (
+        Note.query.filter_by(user_id=current_user.id, calibre_book_id=book_id)
+        .order_by(Note.created_at.desc())
+        .all()
+    )
     return render_template(
         "tracker/book_detail.html",
         book=book,
         attempts=attempts,
         current=current,
+        quotes=quotes,
+        notes=notes,
     )
 
 
@@ -392,6 +412,233 @@ def book_edit_entry_submit(book_id: int, entry_id: int) -> Response:
 
     flash("Read entry updated.", "success")
     return redirect(url_for("tracker.book_detail", book_id=book_id))
+
+
+# ── Quotes & Notes (Phase 7) ────────────────────────────────────────────────
+
+
+def _quote_form_data() -> dict:
+    """Pluck a quote payload out of ``request.form``. Honour the
+    favourite checkbox only when present so partial updates from the
+    in-row toggle never clobber an existing flag."""
+    data = {
+        "quote_text": request.form.get("quote_text") or None,
+        "page_reference": request.form.get("page_reference") or None,
+        "chapter_reference": request.form.get("chapter_reference") or None,
+        "context_note": request.form.get("context_note") or None,
+    }
+    if "is_favourite_present" in request.form:
+        data["is_favourite"] = bool(request.form.get("is_favourite"))
+    return data
+
+
+def _note_form_data() -> dict:
+    """Same shape as :func:`_quote_form_data` for notes."""
+    data = {
+        "note_text": request.form.get("note_text") or None,
+        "note_type": request.form.get("note_type") or None,
+        "page_reference": request.form.get("page_reference") or None,
+    }
+    if "is_spoiler_present" in request.form:
+        data["is_spoiler"] = bool(request.form.get("is_spoiler"))
+    return data
+
+
+@tracker_bp.get("/book/<int:book_id>/quote/new")
+@login_required
+def quote_new(book_id: int) -> Response:
+    """Blank form for adding a new quote to ``book_id``."""
+    book = get_book(book_id)
+    if book is None:
+        abort(404)
+    return render_template("tracker/quote_edit.html", book=book, quote=None, mode="new")
+
+
+@tracker_bp.post("/book/<int:book_id>/quote/new")
+@login_required
+def quote_create(book_id: int) -> Response:
+    if get_book(book_id) is None:
+        abort(404)
+    try:
+        create_quote(current_user, book_id, _quote_form_data())
+    except AnnotationValidationError as exc:
+        flash(str(exc), "danger")
+        return redirect(url_for("tracker.quote_new", book_id=book_id))
+    flash("Quote added.", "success")
+    return redirect(url_for("tracker.book_detail", book_id=book_id) + "#quotes")
+
+
+@tracker_bp.get("/quote/<int:quote_id>/edit")
+@login_required
+def quote_edit(quote_id: int) -> Response:
+    quote = Quote.query.filter_by(id=quote_id, user_id=current_user.id).first()
+    if quote is None:
+        abort(404)
+    book = get_book(quote.calibre_book_id)
+    if book is None:
+        abort(404)
+    return render_template("tracker/quote_edit.html", book=book, quote=quote, mode="edit")
+
+
+@tracker_bp.post("/quote/<int:quote_id>/edit")
+@login_required
+def quote_update(quote_id: int) -> Response:
+    quote = Quote.query.filter_by(id=quote_id, user_id=current_user.id).first()
+    if quote is None:
+        abort(404)
+    try:
+        update_quote(current_user, quote_id, _quote_form_data())
+    except AnnotationValidationError as exc:
+        flash(str(exc), "danger")
+        return redirect(url_for("tracker.quote_edit", quote_id=quote_id))
+    flash("Quote updated.", "success")
+    return redirect(
+        url_for("tracker.book_detail", book_id=quote.calibre_book_id) + "#quotes"
+    )
+
+
+@tracker_bp.post("/quote/<int:quote_id>/delete")
+@login_required
+def quote_delete(quote_id: int) -> Response:
+    quote = Quote.query.filter_by(id=quote_id, user_id=current_user.id).first()
+    if quote is None:
+        abort(404)
+    book_id = quote.calibre_book_id
+    if delete_quote(current_user, quote_id):
+        flash("Quote deleted.", "success")
+    return redirect(url_for("tracker.book_detail", book_id=book_id) + "#quotes")
+
+
+@tracker_bp.post("/quote/<int:quote_id>/favourite")
+@login_required
+def quote_favourite(quote_id: int) -> Response:
+    """Toggle ``is_favourite`` and bounce back to wherever we came from."""
+    quote = Quote.query.filter_by(id=quote_id, user_id=current_user.id).first()
+    if quote is None:
+        abort(404)
+    try:
+        toggle_quote_favourite(current_user, quote_id)
+    except AnnotationValidationError as exc:
+        flash(str(exc), "danger")
+    # Honour an optional ``next`` field so the favourite button on the
+    # /quotes index doesn't kick the user back to the detail page.
+    return redirect(
+        request.form.get("next")
+        or url_for("tracker.book_detail", book_id=quote.calibre_book_id) + "#quotes"
+    )
+
+
+@tracker_bp.get("/book/<int:book_id>/note/new")
+@login_required
+def note_new(book_id: int) -> Response:
+    book = get_book(book_id)
+    if book is None:
+        abort(404)
+    return render_template("tracker/note_edit.html", book=book, note=None, mode="new")
+
+
+@tracker_bp.post("/book/<int:book_id>/note/new")
+@login_required
+def note_create(book_id: int) -> Response:
+    if get_book(book_id) is None:
+        abort(404)
+    try:
+        create_note(current_user, book_id, _note_form_data())
+    except AnnotationValidationError as exc:
+        flash(str(exc), "danger")
+        return redirect(url_for("tracker.note_new", book_id=book_id))
+    flash("Note added.", "success")
+    return redirect(url_for("tracker.book_detail", book_id=book_id) + "#notes")
+
+
+@tracker_bp.get("/note/<int:note_id>/edit")
+@login_required
+def note_edit(note_id: int) -> Response:
+    note = Note.query.filter_by(id=note_id, user_id=current_user.id).first()
+    if note is None:
+        abort(404)
+    book = get_book(note.calibre_book_id)
+    if book is None:
+        abort(404)
+    return render_template("tracker/note_edit.html", book=book, note=note, mode="edit")
+
+
+@tracker_bp.post("/note/<int:note_id>/edit")
+@login_required
+def note_update(note_id: int) -> Response:
+    note = Note.query.filter_by(id=note_id, user_id=current_user.id).first()
+    if note is None:
+        abort(404)
+    try:
+        update_note(current_user, note_id, _note_form_data())
+    except AnnotationValidationError as exc:
+        flash(str(exc), "danger")
+        return redirect(url_for("tracker.note_edit", note_id=note_id))
+    flash("Note updated.", "success")
+    return redirect(
+        url_for("tracker.book_detail", book_id=note.calibre_book_id) + "#notes"
+    )
+
+
+@tracker_bp.post("/note/<int:note_id>/delete")
+@login_required
+def note_delete(note_id: int) -> Response:
+    note = Note.query.filter_by(id=note_id, user_id=current_user.id).first()
+    if note is None:
+        abort(404)
+    book_id = note.calibre_book_id
+    if delete_note(current_user, note_id):
+        flash("Note deleted.", "success")
+    return redirect(url_for("tracker.book_detail", book_id=book_id) + "#notes")
+
+
+@tracker_bp.get("/quotes")
+@login_required
+def quotes_index() -> Response:
+    """Global quote view across all books.
+
+    Filters via query string:
+      * ``book=<id>`` — only quotes for that book
+      * ``favourites=1`` — only favourites
+
+    Books for the filter dropdown are derived from the user's own
+    quote rows (not the whole Calibre library) so the menu only shows
+    books they've actually quoted from.
+    """
+    favourites_only = request.args.get("favourites") == "1"
+    book_filter = request.args.get("book", type=int)
+
+    q = Quote.query.filter_by(user_id=current_user.id)
+    if favourites_only:
+        q = q.filter_by(is_favourite=True)
+    if book_filter:
+        q = q.filter_by(calibre_book_id=book_filter)
+    quotes = q.order_by(Quote.is_favourite.desc(), Quote.created_at.desc()).all()
+
+    # Build the (id, title) options for the book filter dropdown from
+    # every book the user has at least one quote on. A second query for
+    # this is wasteful but cheap on personal datasets and avoids losing
+    # the dropdown entries when ``favourites_only`` filters everything
+    # off the visible list.
+    book_ids = sorted({
+        row[0]
+        for row in db.session.query(Quote.calibre_book_id)
+        .filter_by(user_id=current_user.id)
+        .distinct()
+    })
+    books = {b.id: b for b in get_books(book_ids)}
+    # Pair each quote with its book DTO so the template can render the
+    # cover + title alongside the body without a per-row lookup.
+    paired = [{"quote": q, "book": books.get(q.calibre_book_id)} for q in quotes]
+    book_options = sorted(books.values(), key=lambda b: (b.sort or b.title).lower())
+    return render_template(
+        "tracker/quotes.html",
+        paired=paired,
+        favourites_only=favourites_only,
+        book_filter=book_filter,
+        book_options=book_options,
+        total=len(paired),
+    )
 
 
 # ── Search ──────────────────────────────────────────────────────────────────

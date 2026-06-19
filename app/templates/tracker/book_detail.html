@@ -236,9 +236,149 @@
           </div>
         {% endif %}
 
-        <div class="book-detail-description tracker-quotes-placeholder">
-          <h3>Quotes &amp; Notes</h3>
-          <p class="tracker-empty">Coming in Phase 7 — quotes from this book, plus your own notes.</p>
+        {#
+          Quotes & Notes — two tabs using the components/tabs.html
+          partial pattern. Bootstrap 3 ships a .nav-tabs / .tab-content
+          combo that caliBlur already styles; we just hook into it.
+          Hash fragments (#quotes, #notes) let the create/update redirects
+          deep-link back to the right tab after a save.
+        #}
+        <div class="book-detail-description book-detail-annotations">
+          <ul class="nav nav-tabs tracker-tabs" role="tablist">
+            <li role="presentation" class="active">
+              <a href="#quotes" aria-controls="quotes" role="tab" data-toggle="tab">
+                Quotes <span class="tracker-tab-count">{{ quotes|length }}</span>
+              </a>
+            </li>
+            <li role="presentation">
+              <a href="#notes" aria-controls="notes" role="tab" data-toggle="tab">
+                Notes <span class="tracker-tab-count">{{ notes|length }}</span>
+              </a>
+            </li>
+          </ul>
+
+          <div class="tab-content tracker-tab-content">
+            <div role="tabpanel" class="tab-pane active" id="quotes">
+              <div class="tracker-tab-toolbar">
+                <a href="{{ url_for('tracker.quote_new', book_id=book.id) }}"
+                   class="btn btn-primary btn-sm">
+                  <span class="glyphicon glyphicon-plus"></span> Add quote
+                </a>
+              </div>
+              {% if quotes %}
+                <ul class="quote-list">
+                  {% for q in quotes %}
+                    <li class="quote-card{% if q.is_favourite %} is-favourite{% endif %}">
+                      <blockquote class="quote-body">{{ q.quote_text }}</blockquote>
+                      <div class="quote-footer">
+                        <div class="quote-meta">
+                          {% if q.page_reference %}<span class="meta-pill">{{ q.page_reference }}</span>{% endif %}
+                          {% if q.chapter_reference %}<span class="meta-pill">{{ q.chapter_reference }}</span>{% endif %}
+                        </div>
+                        <div class="quote-actions">
+                          <form method="post" action="{{ url_for('tracker.quote_favourite', quote_id=q.id) }}"
+                                class="tracker-inline-action-form">
+                            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                            <button type="submit"
+                                    class="btn action-icon-btn action-icon-btn-sm{% if q.is_favourite %} is-on{% endif %}"
+                                    data-toggle="tooltip" data-placement="top"
+                                    title=""
+                                    data-original-title="{% if q.is_favourite %}Unfavourite{% else %}Favourite{% endif %}"
+                                    aria-label="Toggle favourite">
+                              <span class="glyphicon glyphicon-star{% if not q.is_favourite %}-empty{% endif %}"></span>
+                            </button>
+                          </form>
+                          <a href="{{ url_for('tracker.quote_edit', quote_id=q.id) }}"
+                             class="btn action-icon-btn action-icon-btn-sm"
+                             data-toggle="tooltip" data-placement="top"
+                             title="" data-original-title="Edit"
+                             aria-label="Edit quote">
+                            <span class="glyphicon glyphicon-pencil"></span>
+                          </a>
+                          <form method="post" action="{{ url_for('tracker.quote_delete', quote_id=q.id) }}"
+                                class="tracker-inline-action-form"
+                                onsubmit="return confirm('Delete this quote?');">
+                            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                            <button type="submit"
+                                    class="btn btn-danger action-icon-btn action-icon-btn-sm"
+                                    data-toggle="tooltip" data-placement="top"
+                                    title="" data-original-title="Delete"
+                                    aria-label="Delete quote">
+                              <span class="glyphicon glyphicon-trash"></span>
+                            </button>
+                          </form>
+                        </div>
+                      </div>
+                      {% if q.context_note %}
+                        <details class="quote-context">
+                          <summary>
+                            <span class="quote-context-chevron glyphicon glyphicon-chevron-right" aria-hidden="true"></span>
+                            <span class="quote-context-label">Context</span>
+                          </summary>
+                          <div class="quote-context-body">{{ q.context_note }}</div>
+                        </details>
+                      {% endif %}
+                    </li>
+                  {% endfor %}
+                </ul>
+              {% else %}
+                <p class="tracker-empty">No quotes yet. Capture a line you want to remember.</p>
+              {% endif %}
+            </div>
+
+            <div role="tabpanel" class="tab-pane" id="notes">
+              <div class="tracker-tab-toolbar">
+                <a href="{{ url_for('tracker.note_new', book_id=book.id) }}"
+                   class="btn btn-primary btn-sm">
+                  <span class="glyphicon glyphicon-plus"></span> Add note
+                </a>
+              </div>
+              {% if notes %}
+                <ul class="note-list">
+                  {% for n in notes %}
+                    <li class="note-card">
+                      <div class="note-meta">
+                        <span class="meta-pill note-type-pill">{{ n.note_type }}</span>
+                        {% if n.page_reference %}<span class="meta-pill">{{ n.page_reference }}</span>{% endif %}
+                        {% if n.is_spoiler %}<span class="meta-pill note-spoiler-pill">spoiler</span>{% endif %}
+                      </div>
+                      {% if n.is_spoiler %}
+                        <details class="note-spoiler-wrap">
+                          <summary>Spoiler — click to reveal</summary>
+                          <div class="note-body">{{ n.note_text }}</div>
+                        </details>
+                      {% else %}
+                        <div class="note-body">{{ n.note_text }}</div>
+                      {% endif %}
+                      <div class="note-actions">
+                        <a href="{{ url_for('tracker.note_edit', note_id=n.id) }}"
+                           class="btn action-icon-btn action-icon-btn-sm"
+                           data-toggle="tooltip" data-placement="top"
+                           title="" data-original-title="Edit"
+                           aria-label="Edit note">
+                          <span class="glyphicon glyphicon-pencil"></span>
+                        </a>
+                        <form method="post" action="{{ url_for('tracker.note_delete', note_id=n.id) }}"
+                              class="tracker-inline-action-form"
+                              onsubmit="return confirm('Delete this note?');">
+                          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                          <button type="submit"
+                                  class="btn btn-danger action-icon-btn action-icon-btn-sm"
+                                  data-toggle="tooltip" data-placement="top"
+                                  title="" data-original-title="Delete"
+                                  aria-label="Delete note">
+                            <span class="glyphicon glyphicon-trash"></span>
+                          </button>
+                        </form>
+                      </div>
+                    </li>
+                  {% endfor %}
+                </ul>
+              {% else %}
+                <p class="tracker-empty">No notes yet.</p>
+              {% endif %}
+            </div>
+          </div>
         </div>
       </div>
     </div>

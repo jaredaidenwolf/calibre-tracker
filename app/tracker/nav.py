@@ -99,7 +99,7 @@ def sidebar_sections() -> tuple[SidebarSection, ...]:
                 SidebarItem(
                     label="Quotes",
                     glyph="glyphicon-comment",
-                    title="Coming in Phase 7",
+                    endpoint="tracker.quotes_index",
                 ),
             ),
         ),
